@@ -1,0 +1,129 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>iFly - 飞行记录</title>
+  <link rel="stylesheet" href="css/style.css">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Noto+Sans+SC:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+  <script type="importmap">
+  {
+    "imports": {
+      "three": "https://unpkg.com/three@0.157.0/build/three.module.js",
+      "three/addons/": "https://unpkg.com/three@0.157.0/examples/jsm/"
+    }
+  }
+  </script>
+</head>
+<body>
+  <div class="app-container">
+    <!-- 左侧：3D地球 -->
+    <div class="globe-panel">
+      <div id="globe-container"></div>
+    </div>
+
+    <button class="panel-toggle" id="panel-toggle" title="隐藏面板">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <polyline points="9 18 15 12 9 6"></polyline>
+      </svg>
+    </button>
+
+    <!-- 右侧面板 -->
+    <div class="right-panel">
+      <div class="side-panel glass">
+        <!-- 综合信息区 -->
+        <div class="stats-section">
+          <div class="panel-header">
+            <h2>飞行统计</h2>
+            <span class="subtitle">FLIGHT STATISTICS</span>
+            <button class="daynight-toggle" id="daynight-toggle" title="全亮模式">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <circle cx="12" cy="12" r="5"/>
+                <line x1="12" y1="1" x2="12" y2="3"/>
+                <line x1="12" y1="21" x2="12" y2="23"/>
+                <line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/>
+                <line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/>
+                <line x1="1" y1="12" x2="3" y2="12"/>
+                <line x1="21" y1="12" x2="23" y2="12"/>
+                <line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/>
+                <line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/>
+              </svg>
+            </button>
+            <button class="daynight-toggle active" id="rotate-toggle" title="停止转动">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <polyline points="23 4 23 10 17 10"/>
+                <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/>
+              </svg>
+            </button>
+          </div>
+          <div class="stats-grid">
+            <div class="stat-card glass-inner">
+              <div class="stat-icon">✈</div>
+              <div class="stat-value" id="stat-flights">0</div>
+              <div class="stat-label">总航班次数</div>
+            </div>
+            <div class="stat-card glass-inner">
+              <div class="stat-icon">🌏</div>
+              <div class="stat-value" id="stat-mileage">0</div>
+              <div class="stat-label">总飞行里程 (km)</div>
+            </div>
+            <div class="stat-card glass-inner">
+              <div class="stat-icon">⏱</div>
+              <div class="stat-value" id="stat-duration">0h</div>
+              <div class="stat-label">飞行时间</div>
+            </div>
+            <div class="stat-card glass-inner">
+              <div class="stat-icon">📍</div>
+              <div class="stat-value" id="stat-airports">0</div>
+              <div class="stat-label">机场数量</div>
+            </div>
+            <div class="stat-card glass-inner">
+              <div class="stat-icon">🛩</div>
+              <div class="stat-value" id="stat-airlines">0</div>
+              <div class="stat-label">航空公司</div>
+            </div>
+            <div class="stat-card glass-inner">
+              <div class="stat-icon">🔧</div>
+              <div class="stat-value" id="stat-aircraft">0</div>
+              <div class="stat-label">机型数量</div>
+            </div>
+          </div>
+        </div>
+
+        <div class="panel-divider"></div>
+
+        <!-- 对话面板 -->
+        <div class="chat-section">
+          <div class="panel-header">
+            <h2>飞行记录</h2>
+            <span class="subtitle">CHAT TO LOG</span>
+          </div>
+          <div class="chat-messages" id="chat-messages">
+            <div class="chat-welcome">
+              <p>👋 在下方输入你的飞行信息，我会帮你记录</p>
+              <p class="chat-hint">示例：2024年3月15日 CA1234 北京-上海 B738 2h30m</p>
+            </div>
+          </div>
+          <div class="chat-input-area">
+            <input
+              type="text"
+              id="chat-input"
+              class="chat-input glass-inner"
+              placeholder="输入航班信息..."
+              autocomplete="off"
+            />
+            <button id="chat-send" class="chat-send-btn glass-inner">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <line x1="12" y1="19" x2="12" y2="5"></line>
+                <polyline points="5 12 12 5 19 12"></polyline>
+              </svg>
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script type="module" src="js/app.js"></script>
+</body>
+</html>

@@ -224,6 +224,7 @@ function handleSendMessage() {
 
   if (flightData && flightData.from && flightData.to) {
     state.flights.push(flightData);
+    saveFlights();
     updateStats();
     EarthGlobe.refreshRoutes();
     addChatMessage('system', null, flightData);
@@ -233,29 +234,26 @@ function handleSendMessage() {
   }
 }
 
-// ==================== Preload Sample Data ====================
-function preloadSampleData() {
-  const samples = [
-    { flightNo: 'CA1234', from: 'PEK', to: 'SHA', fromName: '北京', toName: '上海', date: '2024-01-15', aircraft: 'B738', durationMin: 135 },
-    { flightNo: 'MU5678', from: 'SHA', to: 'CAN', fromName: '上海', toName: '广州', date: '2024-02-20', aircraft: 'A320', durationMin: 150 },
-    { flightNo: 'CZ9012', from: 'CAN', to: 'PEK', fromName: '广州', toName: '北京', date: '2024-03-10', aircraft: 'A330', durationMin: 180 },
-    { flightNo: 'CA3456', from: 'PEK', to: 'NRT', fromName: '北京', toName: '东京', date: '2024-04-05', aircraft: 'B787', durationMin: 210 },
-    { flightNo: 'MU7890', from: 'SHA', to: 'SIN', fromName: '上海', toName: '新加坡', date: '2024-05-15', aircraft: 'A350', durationMin: 345 },
-    { flightNo: 'HU4321', from: 'SZX', to: 'CTU', fromName: '深圳', toName: '成都', date: '2024-06-01', aircraft: 'B738', durationMin: 150 },
-    { flightNo: '3U2468', from: 'CTU', to: 'KMG', fromName: '成都', toName: '昆明', date: '2024-07-12', aircraft: 'A319', durationMin: 90 },
-    { flightNo: 'CZ5566', from: 'CAN', to: 'SYX', fromName: '广州', toName: '三亚', date: '2024-08-20', aircraft: 'A321', durationMin: 75 },
-    { flightNo: 'CA7788', from: 'PEK', to: 'LAX', fromName: '北京', toName: '洛杉矶', date: '2024-09-10', aircraft: 'B77W', durationMin: 720 },
-    { flightNo: 'MU1122', from: 'PVG', to: 'CDG', fromName: '上海', toName: '巴黎', date: '2024-10-05', aircraft: 'B789', durationMin: 750 },
-  ];
+// ==================== Persistence ====================
+const STORAGE_KEY = 'ifly_flights';
 
-  samples.forEach(s => {
-    const fromInfo = AirportDB[s.from];
-    const toInfo = AirportDB[s.to];
-    s.distance = haversineDistance(fromInfo.lat, fromInfo.lon, toInfo.lat, toInfo.lon);
-    state.flights.push(s);
-  });
+function saveFlights() {
+  try {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(state.flights));
+  } catch (e) {
+    // localStorage full or unavailable
+  }
+}
 
-  updateStats();
+function loadFlights() {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if (raw) {
+      state.flights = JSON.parse(raw);
+    }
+  } catch (e) {
+    // corrupted data, start fresh
+  }
 }
 
 // ==================== Init ====================
@@ -266,8 +264,12 @@ function init() {
   });
   EarthGlobe.setPanelWidth(436);
 
-  preloadSampleData();
+  loadFlights();
+  updateStats();
   EarthGlobe.refreshRoutes();
+
+  const pairs = state.flights.map(f => ({ from: f.from, to: f.to })).filter(p => p.from && p.to);
+  EarthGlobe.focusOnFlights(pairs);
 
   const chatInput = document.getElementById('chat-input');
   const sendBtn = document.getElementById('chat-send');
@@ -295,7 +297,7 @@ function init() {
   });
 
   const rotateBtn = document.getElementById('rotate-toggle');
-  let autoRotate = true;
+  let autoRotate = false;
   rotateBtn.addEventListener('click', () => {
     autoRotate = !autoRotate;
     EarthGlobe.setAutoRotate(autoRotate);

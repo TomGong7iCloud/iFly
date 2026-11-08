@@ -9,8 +9,10 @@ import { CSS2DRenderer, CSS2DObject } from 'three/addons/renderers/CSS2DRenderer
 
 const EarthGlobe = (() => {
   let scene, camera, renderer, labelRenderer, controls;
-  let earthMesh;
+  let earthMesh, glowMesh;
   let earthMap, phongMat, basicMat;
+  let _directionalLight;
+  let _markersGroup;
   let airportMarkers = [];
   let flightArcs = [];
   let _airportDB = {};
@@ -23,6 +25,9 @@ const EarthGlobe = (() => {
   let _targetOffset = 0;
   let _currentOffset = 0;
   const LERP_FACTOR = 0.12;
+
+  let _earthReady = false;
+  let _earthScaleTarget = 0.01;
 
   function init(containerSelector, options = {}) {
     _airportDB = options.airportDB || {};
@@ -59,18 +64,22 @@ const EarthGlobe = (() => {
     controls.dampingFactor = 0.08;
     controls.minDistance = 2.2;
     controls.maxDistance = 9;
-    controls.autoRotate = true;
+    controls.autoRotate = false;
     controls.autoRotateSpeed = 0.25;
     controls.target.set(0, 0, 0);
 
-    const ambient = new THREE.AmbientLight(0x556688, 0.8);
+    const ambient = new THREE.AmbientLight(0x8899bb, 0.8);
     scene.add(ambient);
-    const directional = new THREE.DirectionalLight(0xffffff, 0.9);
-    directional.position.set(5, 3, 7);
-    scene.add(directional);
+    _directionalLight = new THREE.DirectionalLight(0xffffff, 3.5);
+    _directionalLight.position.set(5, 3, 7);
+    scene.add(_directionalLight);
 
     createEarth();
     createStars();
+
+    _markersGroup = new THREE.Group();
+    _markersGroup.scale.set(0.01, 0.01, 0.01);
+    scene.add(_markersGroup);
 
     _resizeObserver = new ResizeObserver(() => { _needsResize = true; });
     _resizeObserver.observe(container);
@@ -86,13 +95,14 @@ const EarthGlobe = (() => {
     );
     phongMat = new THREE.MeshPhongMaterial({
       map: earthMap,
-      specular: 0x222222,
-      shininess: 8,
+      specular: 0x000000,
+      shininess: 1,
     });
     basicMat = new THREE.MeshBasicMaterial({
       map: earthMap,
     });
     earthMesh = new THREE.Mesh(geom, phongMat);
+    earthMesh.scale.set(0.01, 0.01, 0.01);
     scene.add(earthMesh);
 
     const glowGeom = new THREE.SphereGeometry(1.31, 72, 54);
@@ -116,7 +126,8 @@ const EarthGlobe = (() => {
       transparent: true,
       depthWrite: false,
     });
-    const glowMesh = new THREE.Mesh(glowGeom, glowMat);
+    glowMesh = new THREE.Mesh(glowGeom, glowMat);
+    glowMesh.scale.set(0.01, 0.01, 0.01);
     scene.add(glowMesh);
   }
 
@@ -124,15 +135,20 @@ const EarthGlobe = (() => {
     const starsGeom = new THREE.BufferGeometry();
     const count = 800;
     const positions = new Float32Array(count * 3);
+    const minDist = 8;
+    const maxDist = 18;
     for (let i = 0; i < count; i++) {
-      positions[i * 3] = (Math.random() - 0.5) * 30;
-      positions[i * 3 + 1] = (Math.random() - 0.5) * 20;
-      positions[i * 3 + 2] = (Math.random() - 0.5) * 25;
+      const r = minDist + Math.random() * (maxDist - minDist);
+      const theta = Math.random() * Math.PI * 2;
+      const phi = Math.acos(2 * Math.random() - 1);
+      positions[i * 3] = r * Math.sin(phi) * Math.cos(theta);
+      positions[i * 3 + 1] = r * Math.sin(phi) * Math.sin(theta);
+      positions[i * 3 + 2] = r * Math.cos(phi);
     }
     starsGeom.setAttribute('position', new THREE.BufferAttribute(positions, 3));
     const starsMat = new THREE.PointsMaterial({
       color: 0x8899cc,
-      size: 0.025,
+      size: 0.04,
       blending: THREE.AdditiveBlending,
       depthWrite: false,
     });
@@ -150,7 +166,7 @@ const EarthGlobe = (() => {
   }
 
   function clearMarkers() {
-    airportMarkers.forEach(m => scene.remove(m));
+    airportMarkers.forEach(m => _markersGroup.remove(m));
     airportMarkers = [];
   }
 
@@ -164,45 +180,48 @@ const EarthGlobe = (() => {
       if (!airport) return;
 
       const pos = latLonToVec3(airport.lat, airport.lon);
+      const normal = pos.clone().normalize();
+      const quat = new THREE.Quaternion().setFromUnitVectors(outward, normal);
 
-      // Flat circle dot, facing outward from globe surface
-      const dotGeom = new THREE.CircleGeometry(0.016, 16);
+      const dotGeom = new THREE.CircleGeometry(0.009, 32);
       const dotMat = new THREE.MeshBasicMaterial({
-        color: 0x64b5f6,
+        color: 0xffa726,
         side: THREE.DoubleSide,
         depthTest: true,
       });
       const dot = new THREE.Mesh(dotGeom, dotMat);
       dot.position.copy(pos);
-      const normal = pos.clone().normalize();
-      const quat = new THREE.Quaternion().setFromUnitVectors(outward, normal);
       dot.setRotationFromQuaternion(quat);
       dot.name = code;
-      scene.add(dot);
+      _markersGroup.add(dot);
       airportMarkers.push(dot);
 
-      const div = document.createElement('div');
-      div.textContent = code;
-      div.style.cssText = `
-        color: rgba(200,220,255,0.9);
-        font-size: 9px;
-        font-family: -apple-system, sans-serif;
-        font-weight: 500;
-        letter-spacing: 0.3px;
-        text-shadow: 0 0 4px rgba(100,160,220,0.4);
-        pointer-events: none;
-        white-space: nowrap;
-      `;
-      const label = new CSS2DObject(div);
-      label.position.copy(pos.clone().multiplyScalar(1.03));
-      label.name = code + '_label';
-      scene.add(label);
-      airportMarkers.push(label);
+      const canvas = document.createElement('canvas');
+      const ctx = canvas.getContext('2d');
+      canvas.width = 512;
+      canvas.height = 128;
+      ctx.font = '600 96px Inter, -apple-system, sans-serif';
+      ctx.fillStyle = 'rgba(220,210,190,0.95)';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.shadowColor = 'rgba(0,0,0,0.8)';
+      ctx.shadowBlur = 12;
+      ctx.fillText(code, 256, 64);
+
+      const tex = new THREE.CanvasTexture(canvas);
+      tex.minFilter = THREE.LinearFilter;
+      const spriteMat = new THREE.SpriteMaterial({ map: tex, depthTest: true, transparent: true });
+      const sprite = new THREE.Sprite(spriteMat);
+      sprite.position.copy(pos.clone().multiplyScalar(1.08));
+      sprite.scale.set(0.18, 0.045, 1);
+      sprite.name = code + '_label';
+      _markersGroup.add(sprite);
+      airportMarkers.push(sprite);
     });
   }
 
   function clearArcs() {
-    flightArcs.forEach(arc => scene.remove(arc));
+    flightArcs.forEach(arc => _markersGroup.remove(arc));
     flightArcs = [];
   }
 
@@ -224,16 +243,15 @@ const EarthGlobe = (() => {
       const mid = start.clone().add(end).multiplyScalar(0.5).normalize().multiplyScalar(1.55);
 
       const curve = new THREE.QuadraticBezierCurve3(start, mid, end);
-      const points = curve.getPoints(60);
-      const geom = new THREE.BufferGeometry().setFromPoints(points);
-      const mat = new THREE.LineBasicMaterial({
-        color: 0x4488cc,
+      const tubeGeom = new THREE.TubeGeometry(curve, 64, 0.007, 8, false);
+      const tubeMat = new THREE.MeshBasicMaterial({
+        color: 0x4fc3f7,
         transparent: true,
-        opacity: 0.6,
+        opacity: 0.65,
       });
-      const line = new THREE.Line(geom, mat);
-      scene.add(line);
-      flightArcs.push(line);
+      const tube = new THREE.Mesh(tubeGeom, tubeMat);
+      _markersGroup.add(tube);
+      flightArcs.push(tube);
     });
   }
 
@@ -261,7 +279,28 @@ const EarthGlobe = (() => {
       applyViewOffset();
     }
 
+    if (!_earthReady && earthMap && earthMap.image && earthMap.image.complete && earthMap.image.naturalWidth > 0) {
+      _earthReady = true;
+      _earthScaleTarget = 1.0;
+    }
+
+    if (_earthReady && earthMesh) {
+      const s = earthMesh.scale.x;
+      const t = _earthScaleTarget;
+      const ns = s + (t - s) * 0.08;
+      if (Math.abs(ns - t) < 0.001) {
+        earthMesh.scale.set(t, t, t);
+        if (glowMesh) glowMesh.scale.set(t, t, t);
+        if (_markersGroup) _markersGroup.scale.set(t, t, t);
+      } else {
+        earthMesh.scale.set(ns, ns, ns);
+        if (glowMesh) glowMesh.scale.set(ns, ns, ns);
+        if (_markersGroup) _markersGroup.scale.set(ns, ns, ns);
+      }
+    }
+
     controls.update();
+    updateSunPosition();
     renderer.render(scene, camera);
     labelRenderer.render(scene, camera);
   }
@@ -291,6 +330,20 @@ const EarthGlobe = (() => {
     }
   }
 
+  function updateSunPosition() {
+    if (!_directionalLight) return;
+    const now = new Date();
+    const utcHours = now.getUTCHours() + now.getUTCMinutes() / 60 + now.getUTCSeconds() / 3600;
+    const angle = (utcHours - 12) * 15 * Math.PI / 180;
+    const dist = 7;
+    const y = 2;
+    _directionalLight.position.set(
+      dist * Math.sin(angle),
+      y,
+      dist * Math.cos(angle)
+    );
+  }
+
   function setPanelWidth(width) {
     _targetOffset = width / 2;
   }
@@ -308,7 +361,36 @@ const EarthGlobe = (() => {
     applyResize();
   }
 
-  return { init, refreshRoutes, resize, setPanelWidth, setFullBright, setAutoRotate };
+  function lookAtLatLon(lat, lon) {
+    if (!camera || !controls) return;
+    const pos = latLonToVec3(lat, lon);
+    const dir = pos.clone().normalize();
+    const dist = camera.position.length();
+    camera.position.copy(dir.multiplyScalar(dist));
+    controls.target.set(0, 0, 0);
+    controls.update();
+  }
+
+  function focusOnFlights(pairs) {
+    if (!pairs || pairs.length === 0) {
+      lookAtLatLon(35, 105);
+      return;
+    }
+    let sumLat = 0, sumLon = 0, count = 0;
+    pairs.forEach(({ from, to }) => {
+      const a = _airportDB[from];
+      const b = _airportDB[to];
+      if (a) { sumLat += a.lat; sumLon += a.lon; count++; }
+      if (b) { sumLat += b.lat; sumLon += b.lon; count++; }
+    });
+    if (count > 0) {
+      lookAtLatLon(sumLat / count, sumLon / count);
+    } else {
+      lookAtLatLon(35, 105);
+    }
+  }
+
+  return { init, refreshRoutes, resize, setPanelWidth, setFullBright, setAutoRotate, lookAtLatLon, focusOnFlights };
 })();
 
 export { EarthGlobe };

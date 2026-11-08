@@ -56,31 +56,414 @@ function getAirportPairs() {
   return pairs;
 }
 
-// ==================== Statistics ====================
-function updateStats() {
+// ==================== Airport Metadata ====================
+const AirportCountry = {
+  PEK: '中国大陆', PKX: '中国大陆', SHA: '中国大陆', PVG: '中国大陆',
+  CAN: '中国大陆', SZX: '中国大陆', CTU: '中国大陆', CKG: '中国大陆',
+  HGH: '中国大陆', WUH: '中国大陆', XIY: '中国大陆', KMG: '中国大陆',
+  HAK: '中国大陆', SYX: '中国大陆', URC: '中国大陆',
+  HKG: '中国香港', TPE: '中国台湾',
+  NRT: '日本', HND: '日本',
+  ICN: '韩国',
+  SIN: '新加坡',
+  BKK: '泰国',
+  LAX: '美国', SFO: '美国', JFK: '美国',
+  LHR: '英国', CDG: '法国',
+  DXB: '阿联酋',
+  SYD: '澳大利亚',
+  FRA: '德国', AMS: '荷兰',
+};
+
+const ChinaMainland = new Set([
+  'PEK','PKX','SHA','PVG','CAN','SZX','CTU','CKG',
+  'HGH','WUH','XIY','KMG','HAK','SYX','URC',
+]);
+
+function isDomestic(f) {
+  return ChinaMainland.has(f.from) && ChinaMainland.has(f.to);
+}
+
+function getCountry(code) {
+  return AirportCountry[code] || '其他';
+}
+
+// ==================== Statistics & Rendering ====================
+let lineChartId = 0;
+
+function updateHistory() {
+  const scroll = document.getElementById('history-scroll');
+  if (!scroll) return;
+
+  const f = state.flights;
+  if (f.length === 0) {
+    scroll.innerHTML = '<div class="history-empty">暂无飞行记录</div>';
+    return;
+  }
+
   state.totalMileage = 0;
   state.totalDurationMin = 0;
   state.airports.clear();
   state.airlines.clear();
   state.aircraftTypes.clear();
-
-  state.flights.forEach(f => {
-    state.totalMileage += f.distance || 0;
-    state.totalDurationMin += f.durationMin || 0;
-    if (f.from) state.airports.add(f.from);
-    if (f.to) state.airports.add(f.to);
-    if (f.airline) state.airlines.add(f.airline);
-    if (f.aircraft) state.aircraftTypes.add(f.aircraft);
+  f.forEach(fl => {
+    state.totalMileage += fl.distance || 0;
+    state.totalDurationMin += fl.durationMin || 0;
+    if (fl.from) state.airports.add(fl.from);
+    if (fl.to) state.airports.add(fl.to);
+    if (fl.airline) state.airlines.add(fl.airline);
+    if (fl.aircraft) state.aircraftTypes.add(fl.aircraft);
   });
 
-  animateNumber('stat-flights', state.flights.length);
-  animateNumber('stat-mileage', formatNumber(state.totalMileage));
-  document.getElementById('stat-duration').textContent = formatDuration(state.totalDurationMin);
-  animateNumber('stat-airports', state.airports.size);
-  animateNumber('stat-airlines', state.airlines.size);
-  animateNumber('stat-aircraft', state.aircraftTypes.size);
+  lineChartId = 0;
+
+  let html = '';
+  html += renderBasicInfo(f);
+  html += renderFlightCount(f);
+  html += renderMileage(f);
+  html += renderDuration(f);
+  html += renderAirports(f);
+  html += renderAirlines(f);
+  html += renderCountries(f);
+  html += renderAircraft(f);
+
+  scroll.innerHTML = html;
 }
 
+// ---- Section 1: Basic Info ----
+function renderBasicInfo(f) {
+  const hours = Math.floor(state.totalDurationMin / 60);
+  const mins = state.totalDurationMin % 60;
+  const dur = mins === 0 ? `${hours}h` : `${hours}h ${mins}m`;
+
+  return `<div class="history-section">
+    <div class="stat-grid">
+      <div class="stat-item">
+        <div class="stat-val">${f.length}</div>
+        <div class="stat-lbl">飞行数</div>
+      </div>
+      <div class="stat-item highlight">
+        <div class="stat-val">${formatNumber(state.totalMileage)}</div>
+        <div class="stat-lbl">里程 (km)</div>
+      </div>
+      <div class="stat-item">
+        <div class="stat-val">${dur}</div>
+        <div class="stat-lbl">飞行时间</div>
+      </div>
+      <div class="stat-item">
+        <div class="stat-val">${state.airports.size}</div>
+        <div class="stat-lbl">机场数</div>
+      </div>
+      <div class="stat-item">
+        <div class="stat-val">${state.airlines.size}</div>
+        <div class="stat-lbl">航司数</div>
+      </div>
+      <div class="stat-item">
+        <div class="stat-val">${state.aircraftTypes.size}</div>
+        <div class="stat-lbl">机型数</div>
+      </div>
+    </div>
+  </div>`;
+}
+
+// ---- Section 2: Flight Count ----
+function renderFlightCount(f) {
+  const domestic = f.filter(isDomestic);
+  const intl = f.filter(fl => !isDomestic(fl));
+
+  const byYear = {};
+  const byMonth = {};
+  f.forEach(fl => {
+    if (!fl.date) return;
+    const y = fl.date.slice(0, 4);
+    byYear[y] = (byYear[y] || 0) + 1;
+    const m = fl.date.slice(0, 7);
+    byMonth[m] = (byMonth[m] || 0) + 1;
+  });
+
+  const yearData = Object.entries(byYear).sort().map(([k, v]) => ({ label: k, value: v }));
+  const monthData = Object.entries(byMonth).sort().map(([k, v]) => ({ label: k, value: v }));
+
+  let html = '<div class="history-section">';
+  html += '<div class="section-title">飞行数</div>';
+
+  html += '<div class="stat-grid col-2" style="margin-bottom:12px">';
+  html += `<div class="stat-item"><div class="stat-val">${domestic.length}</div><div class="stat-lbl">国内航班</div></div>`;
+  html += `<div class="stat-item"><div class="stat-val">${intl.length}</div><div class="stat-lbl">国际及港澳台</div></div>`;
+  html += '</div>';
+
+  if (yearData.length > 0) {
+    html += '<div class="line-chart-wrap"><div class="chart-label">年飞行次数</div>';
+    html += renderLineChart(yearData, 360, 72, '#4da6ff');
+    html += '</div>';
+  }
+  if (monthData.length > 1) {
+    html += '<div class="line-chart-wrap"><div class="chart-label">月飞行次数</div>';
+    html += renderLineChart(monthData, 360, 72, '#4da6ff');
+    html += '</div>';
+  }
+
+  html += '</div>';
+  return html;
+}
+
+// ---- Section 3: Mileage ----
+function renderMileage(f) {
+  const byYear = {};
+  const byMonth = {};
+  f.forEach(fl => {
+    if (!fl.date) return;
+    const y = fl.date.slice(0, 4);
+    byYear[y] = (byYear[y] || 0) + (fl.distance || 0);
+    const m = fl.date.slice(0, 7);
+    byMonth[m] = (byMonth[m] || 0) + (fl.distance || 0);
+  });
+
+  const yearData = Object.entries(byYear).sort().map(([k, v]) => ({ label: k, value: v }));
+  const monthData = Object.entries(byMonth).sort().map(([k, v]) => ({ label: k, value: v }));
+
+  const longest = f.reduce((a, b) => (b.distance || 0) > (a.distance || 0) ? b : a, f[0]);
+  const shortest = f.reduce((a, b) => (b.distance || 0) > 0 && (b.distance || 0) < (a.distance || Infinity) ? b : a, f[0]);
+
+  let html = '<div class="history-section">';
+  html += '<div class="section-title">飞行里程</div>';
+
+  if (yearData.length > 0) {
+    html += '<div class="line-chart-wrap"><div class="chart-label">年里程 (km)</div>';
+    html += renderLineChart(yearData, 360, 72, '#4fc3f7');
+    html += '</div>';
+  }
+  if (monthData.length > 1) {
+    html += '<div class="line-chart-wrap"><div class="chart-label">月里程 (km)</div>';
+    html += renderLineChart(monthData, 360, 72, '#4fc3f7');
+    html += '</div>';
+  }
+
+  html += '<div style="display:flex;flex-direction:column;gap:6px">';
+  html += flightCard(longest, '最长里程');
+  html += flightCard(shortest, '最短里程');
+  html += '</div>';
+  html += '</div>';
+  return html;
+}
+
+// ---- Section 4: Duration ----
+function renderDuration(f) {
+  const totalMin = state.totalDurationMin;
+  const hours = +(totalMin / 60).toFixed(1);
+  const days = +(hours / 24).toFixed(1);
+  const weeks = +(days / 7).toFixed(1);
+  const months = +(days / 30).toFixed(1);
+  const years = +(days / 365).toFixed(2);
+  const avg = f.length > 0 ? Math.round(totalMin / f.length) : 0;
+
+  const byYear = {};
+  const byMonth = {};
+  f.forEach(fl => {
+    if (!fl.date) return;
+    const y = fl.date.slice(0, 4);
+    byYear[y] = (byYear[y] || 0) + (fl.durationMin || 0);
+    const m = fl.date.slice(0, 7);
+    byMonth[m] = (byMonth[m] || 0) + (fl.durationMin || 0);
+  });
+
+  const yearData = Object.entries(byYear).sort().map(([k, v]) => ({ label: k, value: v }));
+  const monthData = Object.entries(byMonth).sort().map(([k, v]) => ({ label: k, value: v }));
+
+  const longest = f.reduce((a, b) => (b.durationMin || 0) > (a.durationMin || 0) ? b : a, f[0]);
+  const shortest = f.reduce((a, b) => (b.durationMin || 0) > 0 && (b.durationMin || 0) < (a.durationMin || Infinity) ? b : a, f[0]);
+
+  let html = '<div class="history-section">';
+  html += '<div class="section-title">飞行时间</div>';
+
+  html += '<div class="stat-grid col-2" style="margin-bottom:12px">';
+  html += `<div class="stat-item"><div class="stat-val">${days} 天</div><div class="stat-lbl">${weeks} 周 · ${months} 月 · ${years} 年</div></div>`;
+  html += `<div class="stat-item highlight"><div class="stat-val">${formatDuration(avg)}</div><div class="stat-lbl">平均时长</div></div>`;
+  html += '</div>';
+
+  if (yearData.length > 0) {
+    html += '<div class="line-chart-wrap"><div class="chart-label">年飞行时间 (分钟)</div>';
+    html += renderLineChart(yearData, 360, 72, '#ffb74d');
+    html += '</div>';
+  }
+  if (monthData.length > 1) {
+    html += '<div class="line-chart-wrap"><div class="chart-label">月飞行时间 (分钟)</div>';
+    html += renderLineChart(monthData, 360, 72, '#ffb74d');
+    html += '</div>';
+  }
+
+  html += '<div style="display:flex;flex-direction:column;gap:6px">';
+  html += flightCard(longest, '时间最长', true);
+  html += flightCard(shortest, '时间最短', true);
+  html += '</div>';
+  html += '</div>';
+  return html;
+}
+
+// ---- Section 5: Airports ----
+function renderAirports(f) {
+  const counts = {};
+  f.forEach(fl => {
+    if (fl.from) counts[fl.from] = (counts[fl.from] || 0) + 1;
+    if (fl.to) counts[fl.to] = (counts[fl.to] || 0) + 1;
+  });
+
+  const items = Object.entries(counts)
+    .sort((a, b) => b[1] - a[1])
+    .map(([code, count]) => {
+      const name = (AirportDB[code] && AirportDB[code].name) || code;
+      return { label: name, value: count };
+    });
+
+  let html = '<div class="history-section">';
+  html += '<div class="section-title">机场统计</div>';
+  html += renderBarChart(items);
+  html += '</div>';
+  return html;
+}
+
+// ---- Section 6: Airlines ----
+function renderAirlines(f) {
+  const counts = {};
+  f.forEach(fl => {
+    const al = fl.airline || '未知';
+    counts[al] = (counts[al] || 0) + 1;
+  });
+
+  const items = Object.entries(counts)
+    .sort((a, b) => b[1] - a[1])
+    .map(([code, count]) => ({ label: code, value: count }));
+
+  let html = '<div class="history-section">';
+  html += '<div class="section-title">航司统计</div>';
+  html += renderBarChart(items);
+  html += '</div>';
+  return html;
+}
+
+// ---- Section 7: Countries/Regions ----
+function renderCountries(f) {
+  const counts = {};
+  f.forEach(fl => {
+    if (fl.from) { const c = getCountry(fl.from); counts[c] = (counts[c] || 0) + 1; }
+    if (fl.to) { const c = getCountry(fl.to); counts[c] = (counts[c] || 0) + 1; }
+  });
+
+  const items = Object.entries(counts).map(([name, count]) => ({ label: name, value: count }));
+  // 确保中国大陆排在最前
+  items.sort((a, b) => {
+    if (a.label === '中国大陆') return -1;
+    if (b.label === '中国大陆') return 1;
+    return b.value - a.value;
+  });
+
+  let html = '<div class="history-section">';
+  html += '<div class="section-title">到访国家 / 地区</div>';
+  html += renderBarChart(items);
+  html += '</div>';
+  return html;
+}
+
+// ---- Section 8: Aircraft ----
+function renderAircraft(f) {
+  const counts = {};
+  f.forEach(fl => {
+    const ac = fl.aircraft || '未知';
+    counts[ac] = (counts[ac] || 0) + 1;
+  });
+
+  const items = Object.entries(counts)
+    .sort((a, b) => b[1] - a[1])
+    .map(([code, count]) => ({ label: code, value: count }));
+
+  const most = items.length > 0 ? items[0].label : '—';
+
+  let html = '<div class="history-section">';
+  html += '<div class="section-title">机型统计</div>';
+  html += `<div class="info-row"><span class="info-label">最多乘坐</span><span class="info-value">${most}</span></div>`;
+  html += renderBarChart(items);
+  html += '</div>';
+  return html;
+}
+
+// ---- Helpers ----
+function flightCard(fl, tag, useDuration) {
+  const fromName = (AirportDB[fl.from] && AirportDB[fl.from].name) || fl.from;
+  const toName = (AirportDB[fl.to] && AirportDB[fl.to].name) || fl.to;
+  const val = useDuration
+    ? formatDuration(fl.durationMin || 0)
+    : (fl.distance ? fl.distance.toLocaleString() + ' km' : '—');
+
+  return `<div class="flight-mini-card">
+    <div class="fmc-route"><span style="color:var(--text-dim);font-size:10px;margin-right:4px">${tag}</span>${fromName} → ${toName}</div>
+    <div class="fmc-meta">
+      <span>${fl.flightNo}</span>
+      <span>${val}</span>
+      <span>${fl.date || ''}</span>
+    </div>
+  </div>`;
+}
+
+function renderBarChart(items) {
+  const maxVal = Math.max(...items.map(i => i.value), 1);
+  const colors = ['#4da6ff', '#4fc3f7', '#64b5f6', '#42a5f5', '#90caf9', '#5c6bc0'];
+  return '<div class="bar-chart">' + items.map((item, i) => {
+    const pct = (item.value / maxVal * 100).toFixed(0);
+    const color = colors[i % colors.length];
+    return `<div class="bar-row">
+      <span class="bar-name" title="${item.label}">${item.label}</span>
+      <div class="bar-track">
+        <div class="bar-fill" style="width:${pct}%;background:linear-gradient(90deg,${color}88,${color})"></div>
+      </div>
+      <span class="bar-count">${item.value}</span>
+    </div>`;
+  }).join('') + '</div>';
+}
+
+function renderLineChart(data, width, height, color) {
+  if (data.length === 0) return '';
+  const id = 'lc' + (lineChartId++);
+  const maxVal = Math.max(...data.map(d => d.value), 1);
+  const pad = { t: 8, r: 12, b: 16, l: 4 };
+  const cw = width - pad.l - pad.r;
+  const ch = height - pad.t - pad.b;
+
+  let pts = '';
+  data.forEach((d, i) => {
+    const x = pad.l + (data.length === 1 ? cw / 2 : (i / (data.length - 1)) * cw);
+    const y = pad.t + ch - (d.value / maxVal) * ch;
+    pts += `${x.toFixed(1)},${y.toFixed(1)} `;
+  });
+
+  let areaPts = pts;
+  areaPts += `${pad.l + cw},${pad.t + ch} ${pad.l},${pad.t + ch}`;
+
+  let labels = '';
+  const step = data.length > 8 ? Math.ceil(data.length / 6) : 1;
+  data.forEach((d, i) => {
+    if (i % step !== 0 && i !== data.length - 1) return;
+    const x = pad.l + (data.length === 1 ? cw / 2 : (i / (data.length - 1)) * cw);
+    labels += `<text x="${x.toFixed(1)}" y="${height - 2}" text-anchor="middle" fill="#556677" font-size="9">${d.label}</text>`;
+  });
+
+  return `<svg width="${width}" height="${height}" viewBox="0 0 ${width} ${height}" style="display:block;width:100%;height:auto">
+    <defs>
+      <linearGradient id="${id}-g" x1="0" y1="0" x2="0" y2="1">
+        <stop offset="0%" stop-color="${color}" stop-opacity="0.18"/>
+        <stop offset="100%" stop-color="${color}" stop-opacity="0.02"/>
+      </linearGradient>
+    </defs>
+    <polygon points="${areaPts}" fill="url(#${id}-g)"/>
+    <polyline points="${pts}" fill="none" stroke="${color}" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+    ${data.length <= 12 ? data.map((d, i) => {
+      const x = pad.l + (data.length === 1 ? cw / 2 : (i / (data.length - 1)) * cw);
+      const y = pad.t + ch - (d.value / maxVal) * ch;
+      return `<circle cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="2.5" fill="${color}"/>`;
+    }).join('') : ''}
+    ${labels}
+  </svg>`;
+}
+
+// ---- Utility ----
 function formatNumber(num) {
   if (num >= 10000) {
     return (num / 10000).toFixed(1) + '万';
@@ -94,13 +477,6 @@ function formatDuration(minutes) {
   if (h === 0) return m + 'm';
   if (m === 0) return h + 'h';
   return h + 'h ' + m + 'm';
-}
-
-function animateNumber(id, value) {
-  const el = document.getElementById(id);
-  el.textContent = value;
-  el.style.transform = 'scale(1.15)';
-  setTimeout(() => { el.style.transform = 'scale(1)'; }, 150);
 }
 
 // ==================== Distance Calculation ====================
@@ -180,62 +556,6 @@ function resolveAirportCode(input) {
   return upper.length === 3 ? upper : null;
 }
 
-// ==================== Chat Interface ====================
-function addChatMessage(type, content, flightData) {
-  const container = document.getElementById('chat-messages');
-  const welcomeEl = container.querySelector('.chat-welcome');
-  if (welcomeEl) welcomeEl.remove();
-
-  const msgEl = document.createElement('div');
-  msgEl.className = `chat-message ${type}`;
-
-  if (flightData && type === 'system') {
-    const detailEl = document.createElement('div');
-    detailEl.className = 'flight-detail';
-    detailEl.textContent = `${flightData.flightNo}  ${flightData.fromName} → ${flightData.toName}`;
-    msgEl.appendChild(detailEl);
-
-    const meta = [];
-    meta.push(flightData.date);
-    if (flightData.aircraft) meta.push(flightData.aircraft);
-    meta.push(formatDuration(flightData.durationMin));
-    meta.push(flightData.distance.toLocaleString() + ' km');
-
-    const metaEl = document.createElement('div');
-    metaEl.className = 'flight-meta';
-    metaEl.textContent = meta.join(' · ');
-    msgEl.appendChild(metaEl);
-  } else {
-    msgEl.textContent = content;
-  }
-
-  container.appendChild(msgEl);
-  container.scrollTop = container.scrollHeight;
-}
-
-function handleSendMessage() {
-  const input = document.getElementById('chat-input');
-  const text = input.value.trim();
-  if (!text) return;
-
-  addChatMessage('user', text);
-  input.value = '';
-  input.focus();
-
-  const flightData = parseFlightInput(text);
-
-  if (flightData && flightData.from && flightData.to) {
-    state.flights.push(flightData);
-    saveFlights();
-    updateStats();
-    EarthGlobe.refreshRoutes();
-    addChatMessage('system', null, flightData);
-  } else {
-    const helpMsg = '没能解析到航班信息，请参考格式：\n2024年3月15日 CA1234 北京-上海 B738 2h30m\n或：2024-03-15 CA1234 PEK-SHA B738 2h30m';
-    addChatMessage('system', helpMsg);
-  }
-}
-
 // ==================== Persistence ====================
 const STORAGE_KEY = 'ifly_flights';
 
@@ -272,18 +592,16 @@ function init() {
   EarthGlobe.setPanelWidth(436);
 
   loadFlights();
-  updateStats();
+  updateHistory();
   EarthGlobe.refreshRoutes();
 
   const pairs = state.flights.map(f => ({ from: f.from, to: f.to })).filter(p => p.from && p.to);
   EarthGlobe.focusOnFlights(pairs);
 
-  const chatInput = document.getElementById('chat-input');
-  const sendBtn = document.getElementById('chat-send');
-
-  sendBtn.addEventListener('click', handleSendMessage);
-  chatInput.addEventListener('keydown', (e) => {
-    if (e.key === 'Enter') handleSendMessage();
+  const addFlightBtn = document.getElementById('add-flight-btn');
+  addFlightBtn.addEventListener('click', () => {
+    // 对话框面板稍后添加
+    console.log('记录航班 — 对话框功能即将上线');
   });
 
   const toggleBtn = document.getElementById('panel-toggle');

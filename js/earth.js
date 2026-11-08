@@ -29,6 +29,11 @@ const EarthGlobe = (() => {
   let _earthReady = false;
   let _earthScaleTarget = 0.01;
 
+  const _textureLoader = new THREE.TextureLoader();
+  const _preloadedTexture = _textureLoader.load(
+    'assets/earth-blue-marble.jpg'
+  );
+
   function init(containerSelector, options = {}) {
     _airportDB = options.airportDB || {};
     _getPairs = options.getAirportPairs || (() => []);
@@ -88,11 +93,12 @@ const EarthGlobe = (() => {
   }
 
   function createEarth() {
-    const geom = new THREE.SphereGeometry(1.28, 72, 54);
-    const textureLoader = new THREE.TextureLoader();
-    earthMap = textureLoader.load(
-      'https://unpkg.com/three-globe/example/img/earth-blue-marble.jpg'
-    );
+    const geom = new THREE.SphereGeometry(1.28, 128, 86);
+    earthMap = _preloadedTexture;
+    _preloadedTexture.anisotropy = 16;
+    _preloadedTexture.magFilter = THREE.LinearFilter;
+    _preloadedTexture.minFilter = THREE.LinearMipmapLinearFilter;
+    _preloadedTexture.generateMipmaps = true;
     phongMat = new THREE.MeshPhongMaterial({
       map: earthMap,
       specular: 0x000000,
@@ -133,7 +139,7 @@ const EarthGlobe = (() => {
 
   function createStars() {
     const starsGeom = new THREE.BufferGeometry();
-    const count = 800;
+    const count = 1000;
     const positions = new Float32Array(count * 3);
     const minDist = 8;
     const maxDist = 18;
@@ -148,7 +154,7 @@ const EarthGlobe = (() => {
     starsGeom.setAttribute('position', new THREE.BufferAttribute(positions, 3));
     const starsMat = new THREE.PointsMaterial({
       color: 0x8899cc,
-      size: 0.04,
+      size: 0.045,
       blending: THREE.AdditiveBlending,
       depthWrite: false,
     });
@@ -185,7 +191,7 @@ const EarthGlobe = (() => {
 
       const dotGeom = new THREE.CircleGeometry(0.009, 32);
       const dotMat = new THREE.MeshBasicMaterial({
-        color: 0xffa726,
+        color: 0x64b5f6,
         side: THREE.DoubleSide,
         depthTest: true,
       });

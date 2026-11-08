@@ -152,9 +152,11 @@ function parseFlightInput(input) {
         : 0;
 
       const durationMin = (parseInt(hours) || 0) * 60 + (parseInt(minutes) || 0);
+      const airlineCode = (flightNo.match(/^[A-Za-z]+/) || [''])[0].toUpperCase();
 
       return {
         flightNo: flightNo.toUpperCase(),
+        airline: airlineCode || null,
         from: fromCode,
         to: toCode,
         fromName,
@@ -250,6 +252,11 @@ function loadFlights() {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (raw) {
       state.flights = JSON.parse(raw);
+      state.flights.forEach(f => {
+        if (!f.airline && f.flightNo) {
+          f.airline = (f.flightNo.match(/^[A-Za-z]+/) || [''])[0].toUpperCase() || null;
+        }
+      });
     }
   } catch (e) {
     // corrupted data, start fresh

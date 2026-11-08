@@ -23,14 +23,15 @@
       <div id="globe-container"></div>
     </div>
 
-    <button class="panel-toggle" id="panel-toggle" title="隐藏面板">
-      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-        <polyline points="9 18 15 12 9 6"></polyline>
-      </svg>
-    </button>
+    <!-- 右侧面板 + 切换按钮容器 -->
+    <div class="panel-wrapper">
+      <button class="panel-toggle" id="panel-toggle" title="隐藏面板">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <polyline points="9 18 15 12 9 6"></polyline>
+        </svg>
+      </button>
 
-    <!-- 右侧面板 -->
-    <div class="right-panel">
+      <div class="right-panel">
       <div class="side-panel glass">
         <!-- 综合信息区 -->
         <div class="stats-section">
@@ -122,6 +123,7 @@
           </div>
         </div>
       </div>
+    </div>
     </div>
   </div>
 

@@ -89,6 +89,19 @@ html, body {
   display: block;
 }
 
+/* ===== Panel Wrapper (button + panel move together) ===== */
+.panel-wrapper {
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  transition: transform 0.45s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.app-container.collapsed .panel-wrapper {
+  transform: translateX(436px);
+}
+
 /* ===== Right Panel ===== */
 .right-panel {
   position: absolute;
@@ -96,11 +109,6 @@ html, body {
   right: 0;
   bottom: 0;
   width: 436px;
-  transition: transform 0.45s cubic-bezier(0.4, 0, 0.2, 1);
-}
-
-.app-container.collapsed .right-panel {
-  transform: translateX(100%);
 }
 
 /* ===== Panel Toggle Button ===== */
@@ -123,10 +131,9 @@ html, body {
   justify-content: center;
   padding: 0;
   z-index: 10;
-  transition: right 0.45s cubic-bezier(0.4, 0, 0.2, 1),
-              color 0.2s,
-              background 0.2s,
-              border-color 0.2s;
+  transition: color 0.2s,
+            background 0.2s,
+            border-color 0.2s;
   outline: none;
 }
 
@@ -137,10 +144,6 @@ html, body {
 
 .panel-toggle svg {
   transition: transform 0.4s ease;
-}
-
-.app-container.collapsed .panel-toggle {
-  right: 8px;
 }
 
 .app-container.collapsed .panel-toggle svg {

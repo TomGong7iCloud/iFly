@@ -1,2 +1,6 @@
 .DS_Store
-.server.pid
+.flask.pid
+.flask.log
+data/
+__pycache__/
+*.pyc

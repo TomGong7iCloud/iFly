@@ -2,7 +2,9 @@
 
 # iFly 开发服务器终止脚本
 
-PID_FILE=".server.pid"
+PID_FILE=".flask.pid"
+
+cd "$(dirname "$0")"
 
 if [ ! -f "$PID_FILE" ]; then
   echo "没有正在运行的服务器"

@@ -12,6 +12,7 @@ const EarthGlobe = (() => {
   let earthMesh, glowMesh;
   let earthMap, phongMat, basicMat;
   let _directionalLight;
+  let _cameraPivot;
   let _markersGroup;
   let airportMarkers = [];
   let flightArcs = [];
@@ -22,8 +23,11 @@ const EarthGlobe = (() => {
   let _resizeObserver = null;
   let _needsResize = false;
 
+  let _targetPanelAngle = 0;
+  let _currentPanelAngle = 0;
   let _targetOffset = 0;
   let _currentOffset = 0;
+  let _panelWidth = 0;
   const LERP_FACTOR = 0.12;
 
   let _earthReady = false;
@@ -80,7 +84,13 @@ const EarthGlobe = (() => {
     scene.add(_directionalLight);
 
     createEarth();
+    scene.add(earthMesh);
+    scene.add(glowMesh);
     createStars();
+
+    _cameraPivot = new THREE.Group();
+    scene.add(_cameraPivot);
+    _cameraPivot.add(camera);
 
     _markersGroup = new THREE.Group();
     _markersGroup.scale.set(0.01, 0.01, 0.01);
@@ -109,7 +119,6 @@ const EarthGlobe = (() => {
     });
     earthMesh = new THREE.Mesh(geom, phongMat);
     earthMesh.scale.set(0.01, 0.01, 0.01);
-    scene.add(earthMesh);
 
     const glowGeom = new THREE.SphereGeometry(1.31, 72, 54);
     const glowMat = new THREE.ShaderMaterial({
@@ -134,7 +143,6 @@ const EarthGlobe = (() => {
     });
     glowMesh = new THREE.Mesh(glowGeom, glowMat);
     glowMesh.scale.set(0.01, 0.01, 0.01);
-    scene.add(glowMesh);
   }
 
   function createStars() {
@@ -176,27 +184,127 @@ const EarthGlobe = (() => {
     airportMarkers = [];
   }
 
-  function addAirportMarkers(iataList) {
+  function eastTangent(lat, lon) {
+    const theta = (lon + 180) * (Math.PI / 180);
+    return new THREE.Vector3(Math.sin(theta), 0, Math.cos(theta)).normalize();
+  }
+
+  function addAirportMarkers(iataList, pairs) {
     clearMarkers();
     const uniqueIATAs = [...new Set(iataList)];
     const outward = new THREE.Vector3(0, 0, 1);
 
+    const entries = [];
     uniqueIATAs.forEach(code => {
       const airport = _airportDB[code];
       if (!airport) return;
-
       const pos = latLonToVec3(airport.lat, airport.lon);
       const normal = pos.clone().normalize();
+      const east = eastTangent(airport.lat, airport.lon);
+      const north = new THREE.Vector3().crossVectors(normal, east).normalize();
+      entries.push({ code, airport, pos, normal, east, north });
+    });
+
+    const adj = {};
+    pairs.forEach(({ from, to }) => {
+      if (!adj[from]) adj[from] = [];
+      adj[from].push(to);
+      if (!adj[to]) adj[to] = [];
+      adj[to].push(from);
+    });
+
+    const NEAR = 0.10;
+    const TIGHT = 0.03;
+    const TILT = 0.40;
+    const K = 0.012;
+
+    entries.forEach(entry => {
+      const targets = adj[entry.code] || [];
+      const uniqueTargets = new Set(targets).size;
+      const sum = new THREE.Vector3(0, 0, 0);
+
+      targets.forEach(tc => {
+        const ap = _airportDB[tc];
+        if (!ap) return;
+        const tp = latLonToVec3(ap.lat, ap.lon);
+        const diff = tp.clone().sub(entry.pos);
+        const proj = entry.normal.clone().multiplyScalar(diff.dot(entry.normal));
+        sum.add(diff.sub(proj).normalize());
+      });
+
+      // 只有一条航线（去重后仅一个目的地）：直接取航线反方向（不考虑靠右）；否则默认靠右，南北由反方向决定
+      if (sum.lengthSq() > 0.000001) {
+        const opp = sum.normalize().multiplyScalar(-1);
+        if (uniqueTargets === 1) {
+          entry.angle = Math.atan2(opp.dot(entry.north), opp.dot(entry.east));
+        } else {
+          const routeN = THREE.MathUtils.clamp(opp.dot(entry.north), -1, 1);
+          entry.angle = routeN * TILT;
+        }
+      } else {
+        entry.angle = 0;
+      }
+    });
+
+    // 极近机场（如北京两机场）：航线方向通常相似，标签靠右并按纬度上下错开
+    entries.forEach(entry => {
+      entry.tight = entries.some(other =>
+        other !== entry && entry.pos.distanceTo(other.pos) < TIGHT
+      );
+    });
+
+    // 邻近机场按纬度上下错开：纬度高的偏上、纬度低的偏下，越近错开越大
+    for (let iter = 0; iter < 20; iter++) {
+      entries.forEach((entry, i) => {
+        let torque = 0;
+        entries.forEach((other, j) => {
+          if (i === j) return;
+          const d = entry.pos.distanceTo(other.pos);
+          if (d > NEAR) return;
+          const latDiff = entry.airport.lat - other.airport.lat;
+          if (Math.abs(latDiff) < 1e-9) return;
+          const desired = Math.sign(latDiff) * THREE.MathUtils.clamp(K / d, 0.1, 1.0);
+          const angDiff = entry.angle - other.angle;
+          torque += (desired - angDiff) * 0.5;
+        });
+        if (entry.tight) {
+          torque += (0 - entry.angle) * 0.1;
+        }
+        entry.angle += torque;
+      });
+    }
+
+    entries.forEach(entry => {
+      const dir = entry.east.clone().multiplyScalar(Math.cos(entry.angle))
+        .add(entry.north.clone().multiplyScalar(Math.sin(entry.angle)));
+      entry.offset = dir.multiplyScalar(0.055);
+    });
+
+    entries.forEach(entry => {
+      const { code, airport, pos, normal, offset } = entry;
+
       const quat = new THREE.Quaternion().setFromUnitVectors(outward, normal);
 
-      const dotGeom = new THREE.CircleGeometry(0.009, 32);
-      const dotMat = new THREE.MeshBasicMaterial({
+      const outlineGeom = new THREE.CircleGeometry(0.007, 32);
+      const outlineMat = new THREE.MeshBasicMaterial({
+        color: 0xffffff,
+        side: THREE.DoubleSide,
+        depthTest: true,
+      });
+      const outlineDot = new THREE.Mesh(outlineGeom, outlineMat);
+      outlineDot.position.copy(pos);
+      outlineDot.setRotationFromQuaternion(quat);
+      _markersGroup.add(outlineDot);
+      airportMarkers.push(outlineDot);
+
+      const coreGeom = new THREE.CircleGeometry(0.004, 32);
+      const coreMat = new THREE.MeshBasicMaterial({
         color: 0x64b5f6,
         side: THREE.DoubleSide,
         depthTest: true,
       });
-      const dot = new THREE.Mesh(dotGeom, dotMat);
-      dot.position.copy(pos);
+      const dot = new THREE.Mesh(coreGeom, coreMat);
+      dot.position.copy(pos.clone().add(normal.clone().multiplyScalar(0.0012)));
       dot.setRotationFromQuaternion(quat);
       dot.name = code;
       _markersGroup.add(dot);
@@ -218,7 +326,7 @@ const EarthGlobe = (() => {
       tex.minFilter = THREE.LinearFilter;
       const spriteMat = new THREE.SpriteMaterial({ map: tex, depthTest: true, transparent: true });
       const sprite = new THREE.Sprite(spriteMat);
-      sprite.position.copy(pos.clone().multiplyScalar(1.08));
+      sprite.position.copy(pos.clone().multiplyScalar(1.022).add(offset));
       sprite.scale.set(0.18, 0.045, 1);
       sprite.name = code + '_label';
       _markersGroup.add(sprite);
@@ -246,15 +354,37 @@ const EarthGlobe = (() => {
 
       const start = latLonToVec3(apFrom.lat, apFrom.lon);
       const end = latLonToVec3(apTo.lat, apTo.lon);
-      const mid = start.clone().add(end).multiplyScalar(0.5).normalize().multiplyScalar(1.55);
 
-      const curve = new THREE.QuadraticBezierCurve3(start, mid, end);
-      const tubeGeom = new THREE.TubeGeometry(curve, 64, 0.007, 8, false);
-      const tubeMat = new THREE.MeshBasicMaterial({
-        color: 0x4fc3f7,
-        transparent: true,
-        opacity: 0.65,
-      });
+      const startN = start.clone().normalize();
+      const endN = end.clone().normalize();
+      const dot = THREE.MathUtils.clamp(startN.dot(endN), -1, 1);
+      const angle = Math.acos(dot);
+
+      if (angle < 0.0001) return;
+
+      const segments = 64;
+      const maxPush = (angle / Math.PI) * 0.15;
+      const points = [];
+
+      for (let i = 0; i <= segments; i++) {
+        const t = i / segments;
+        let pt;
+        if (i === 0) {
+          pt = startN.clone();
+        } else if (i === segments) {
+          pt = endN.clone();
+        } else {
+          const a0 = Math.sin((1 - t) * angle) / Math.sin(angle);
+          const a1 = Math.sin(t * angle) / Math.sin(angle);
+          pt = startN.clone().multiplyScalar(a0).add(endN.clone().multiplyScalar(a1));
+        }
+        const push = Math.sin(Math.PI * t) * maxPush;
+        points.push(pt.multiplyScalar(1.285 + push));
+      }
+
+      const curve = new THREE.CatmullRomCurve3(points);
+      const tubeGeom = new THREE.TubeGeometry(curve, 64, 0.0025, 8, false);
+      const tubeMat = new THREE.MeshBasicMaterial({ color: 0x4fc3f7 });
       const tube = new THREE.Mesh(tubeGeom, tubeMat);
       _markersGroup.add(tube);
       flightArcs.push(tube);
@@ -268,7 +398,7 @@ const EarthGlobe = (() => {
       allIATAs.push(p.from);
       allIATAs.push(p.to);
     });
-    addAirportMarkers(allIATAs);
+    addAirportMarkers(allIATAs, pairs);
     addFlightArcs(pairs);
   }
 
@@ -280,9 +410,11 @@ const EarthGlobe = (() => {
       applyResize();
     }
 
+    if (Math.abs(_currentPanelAngle - _targetPanelAngle) > 0.00005) {
+      _currentPanelAngle += (_targetPanelAngle - _currentPanelAngle) * LERP_FACTOR;
+    }
     if (Math.abs(_currentOffset - _targetOffset) > 0.3) {
       _currentOffset += (_targetOffset - _currentOffset) * LERP_FACTOR;
-      applyViewOffset();
     }
 
     if (!_earthReady && earthMap && earthMap.image && earthMap.image.complete && earthMap.image.naturalWidth > 0) {
@@ -306,6 +438,7 @@ const EarthGlobe = (() => {
     }
 
     controls.update();
+    applyPanelAngle();
     updateSunPosition();
     renderer.render(scene, camera);
     labelRenderer.render(scene, camera);
@@ -321,6 +454,23 @@ const EarthGlobe = (() => {
     camera.updateProjectionMatrix();
     renderer.setSize(w, h);
     labelRenderer.setSize(w, h);
+    recalcPanelAngle();
+  }
+
+  function recalcPanelAngle() {
+    const container = document.querySelector(_containerSel);
+    if (!container || !camera) return;
+    const vw = container.clientWidth;
+    if (vw === 0) return;
+    const vFov = camera.fov * Math.PI / 180;
+    const hFov = 2 * Math.atan(Math.tan(vFov / 2) * camera.aspect);
+    _targetPanelAngle = (_panelWidth / 2) / vw * hFov;
+  }
+
+  function applyPanelAngle() {
+    if (_cameraPivot) {
+      _cameraPivot.rotation.y = -_currentPanelAngle;
+    }
     applyViewOffset();
   }
 
@@ -340,18 +490,35 @@ const EarthGlobe = (() => {
     if (!_directionalLight) return;
     const now = new Date();
     const utcHours = now.getUTCHours() + now.getUTCMinutes() / 60 + now.getUTCSeconds() / 3600;
-    const angle = (utcHours - 12) * 15 * Math.PI / 180;
+
+    const start = new Date(now.getFullYear(), 0, 0);
+    const dayOfYear = Math.floor((now - start) / (1000 * 60 * 60 * 24));
+    const g = 2 * Math.PI * (dayOfYear - 1) / 365;
+    const eot = 229.18 * (
+      0.000075
+      + 0.001868 * Math.cos(g)
+      - 0.032077 * Math.sin(g)
+      - 0.014615 * Math.cos(2 * g)
+      - 0.040849 * Math.sin(2 * g)
+    );
+
+    const ra = ((18 - utcHours) * 15 - eot / 4) * Math.PI / 180;
+
+    const declination = 23.44 * Math.PI / 180
+      * Math.sin(2 * Math.PI * (284 + dayOfYear) / 365);
+
     const dist = 7;
-    const y = 2;
     _directionalLight.position.set(
-      dist * Math.sin(angle),
-      y,
-      dist * Math.cos(angle)
+      dist * Math.cos(declination) * Math.sin(ra),
+      dist * Math.sin(declination),
+      dist * Math.cos(declination) * Math.cos(ra)
     );
   }
 
   function setPanelWidth(width) {
+    _panelWidth = width;
     _targetOffset = width / 2;
+    recalcPanelAngle();
   }
 
   function setFullBright(enabled) {

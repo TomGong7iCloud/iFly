@@ -99,7 +99,7 @@ html, body {
 }
 
 .app-container.collapsed .panel-wrapper {
-  transform: translateX(436px);
+  transform: translateX(540px);
 }
 
 /* ===== Right Panel ===== */
@@ -108,13 +108,13 @@ html, body {
   top: 0;
   right: 0;
   bottom: 0;
-  width: 436px;
+  width: 540px;
 }
 
 /* ===== Panel Toggle Button ===== */
 .panel-toggle {
   position: absolute;
-  right: 444px;
+  right: 548px;
   top: 50%;
   transform: translateY(-50%);
   width: 24px;
@@ -446,7 +446,7 @@ html, body {
 }
 
 .bar-name {
-  width: 76px;
+  width: 120px;
   font-size: 11px;
   color: var(--text-secondary);
   text-align: right;

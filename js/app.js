@@ -9,7 +9,8 @@ const AirportDB = {
   PVG: { name: '上海浦东', lat: 31.14, lon: 121.81 },
   CAN: { name: '广州白云', lat: 23.39, lon: 113.30 },
   SZX: { name: '深圳宝安', lat: 22.64, lon: 113.81 },
-  CTU: { name: '成都天府', lat: 30.32, lon: 104.44 },
+  CTU: { name: '成都双流', lat: 30.58, lon: 103.95 },
+  TFU: { name: '成都天府', lat: 30.32, lon: 104.44 },
   CKG: { name: '重庆江北', lat: 29.72, lon: 106.64 },
   HGH: { name: '杭州萧山', lat: 30.23, lon: 120.43 },
   WUH: { name: '武汉天河', lat: 30.78, lon: 114.21 },
@@ -34,6 +35,15 @@ const AirportDB = {
   AMS: { name: '阿姆斯特丹', lat: 52.31, lon: 4.76 },
   HKG: { name: '香港', lat: 22.31, lon: 113.91 },
   TPE: { name: '台北桃园', lat: 25.08, lon: 121.23 },
+  // New additions from Flighty import
+  YVR: { name: '温哥华', lat: 49.19, lon: -123.18 },
+  IKT: { name: '伊尔库茨克', lat: 52.27, lon: 104.39 },
+  DME: { name: '莫斯科多莫杰多沃', lat: 55.41, lon: 37.90 },
+  LED: { name: '圣彼得堡', lat: 59.80, lon: 30.26 },
+  OVB: { name: '新西伯利亚', lat: 55.01, lon: 82.65 },
+  ADD: { name: '亚的斯亚贝巴', lat: 8.98, lon: 38.80 },
+  ABJ: { name: '阿比让', lat: 5.26, lon: -3.93 },
+  SEA: { name: '西雅图', lat: 47.45, lon: -122.31 },
 };
 
 // ==================== Data Store ====================
@@ -59,7 +69,7 @@ function getAirportPairs() {
 // ==================== Airport Metadata ====================
 const AirportCountry = {
   PEK: '中国大陆', PKX: '中国大陆', SHA: '中国大陆', PVG: '中国大陆',
-  CAN: '中国大陆', SZX: '中国大陆', CTU: '中国大陆', CKG: '中国大陆',
+  CAN: '中国大陆', SZX: '中国大陆', CTU: '中国大陆', TFU: '中国大陆', CKG: '中国大陆',
   HGH: '中国大陆', WUH: '中国大陆', XIY: '中国大陆', KMG: '中国大陆',
   HAK: '中国大陆', SYX: '中国大陆', URC: '中国大陆',
   HKG: '中国香港', TPE: '中国台湾',
@@ -67,15 +77,19 @@ const AirportCountry = {
   ICN: '韩国',
   SIN: '新加坡',
   BKK: '泰国',
-  LAX: '美国', SFO: '美国', JFK: '美国',
+  LAX: '美国', SFO: '美国', JFK: '美国', SEA: '美国',
   LHR: '英国', CDG: '法国',
   DXB: '阿联酋',
   SYD: '澳大利亚',
   FRA: '德国', AMS: '荷兰',
+  YVR: '加拿大',
+  IKT: '俄罗斯', DME: '俄罗斯', LED: '俄罗斯', OVB: '俄罗斯',
+  ADD: '埃塞俄比亚',
+  ABJ: '科特迪瓦',
 };
 
 const ChinaMainland = new Set([
-  'PEK','PKX','SHA','PVG','CAN','SZX','CTU','CKG',
+  'PEK','PKX','SHA','PVG','CAN','SZX','CTU','TFU','CKG',
   'HGH','WUH','XIY','KMG','HAK','SYX','URC',
 ]);
 
@@ -172,12 +186,15 @@ function renderFlightCount(f) {
 
   const byYear = {};
   const byMonth = {};
+  const currentYear = String(new Date().getFullYear());
   f.forEach(fl => {
     if (!fl.date) return;
     const y = fl.date.slice(0, 4);
     byYear[y] = (byYear[y] || 0) + 1;
-    const m = fl.date.slice(0, 7);
-    byMonth[m] = (byMonth[m] || 0) + 1;
+    if (y === currentYear) {
+      const m = fl.date.slice(0, 7);
+      byMonth[m] = (byMonth[m] || 0) + 1;
+    }
   });
 
   const yearData = Object.entries(byYear).sort().map(([k, v]) => ({ label: k, value: v }));
@@ -210,12 +227,15 @@ function renderFlightCount(f) {
 function renderMileage(f) {
   const byYear = {};
   const byMonth = {};
+  const currentYear = String(new Date().getFullYear());
   f.forEach(fl => {
     if (!fl.date) return;
     const y = fl.date.slice(0, 4);
     byYear[y] = (byYear[y] || 0) + (fl.distance || 0);
-    const m = fl.date.slice(0, 7);
-    byMonth[m] = (byMonth[m] || 0) + (fl.distance || 0);
+    if (y === currentYear) {
+      const m = fl.date.slice(0, 7);
+      byMonth[m] = (byMonth[m] || 0) + (fl.distance || 0);
+    }
   });
 
   const yearData = Object.entries(byYear).sort().map(([k, v]) => ({ label: k, value: v }));
@@ -258,12 +278,15 @@ function renderDuration(f) {
 
   const byYear = {};
   const byMonth = {};
+  const currentYear = String(new Date().getFullYear());
   f.forEach(fl => {
     if (!fl.date) return;
     const y = fl.date.slice(0, 4);
     byYear[y] = (byYear[y] || 0) + (fl.durationMin || 0);
-    const m = fl.date.slice(0, 7);
-    byMonth[m] = (byMonth[m] || 0) + (fl.durationMin || 0);
+    if (y === currentYear) {
+      const m = fl.date.slice(0, 7);
+      byMonth[m] = (byMonth[m] || 0) + (fl.durationMin || 0);
+    }
   });
 
   const yearData = Object.entries(byYear).sort().map(([k, v]) => ({ label: k, value: v }));
@@ -423,7 +446,7 @@ function renderLineChart(data, width, height, color) {
   if (data.length === 0) return '';
   const id = 'lc' + (lineChartId++);
   const maxVal = Math.max(...data.map(d => d.value), 1);
-  const pad = { t: 8, r: 12, b: 16, l: 4 };
+  const pad = { t: 8, r: 16, b: 18, l: 16 };
   const cw = width - pad.l - pad.r;
   const ch = height - pad.t - pad.b;
 
@@ -442,7 +465,8 @@ function renderLineChart(data, width, height, color) {
   data.forEach((d, i) => {
     if (i % step !== 0 && i !== data.length - 1) return;
     const x = pad.l + (data.length === 1 ? cw / 2 : (i / (data.length - 1)) * cw);
-    labels += `<text x="${x.toFixed(1)}" y="${height - 2}" text-anchor="middle" fill="#556677" font-size="9">${d.label}</text>`;
+    const anchor = i === 0 ? 'start' : (i === data.length - 1 ? 'end' : 'middle');
+    labels += `<text x="${x.toFixed(1)}" y="${height - 3}" text-anchor="${anchor}" fill="#556677" font-size="9">${d.label}</text>`;
   });
 
   return `<svg width="${width}" height="${height}" viewBox="0 0 ${width} ${height}" style="display:block;width:100%;height:auto">
@@ -557,46 +581,46 @@ function resolveAirportCode(input) {
 }
 
 // ==================== Persistence ====================
-const STORAGE_KEY = 'ifly_flights';
+const API_BASE = '/api';
 
-function saveFlights() {
-  try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(state.flights));
-  } catch (e) {
-    // localStorage full or unavailable
+function normalizeFlight(f) {
+  if (!f.airline && f.flightNo) {
+    f.airline = (f.flightNo.match(/^[A-Za-z]+/) || [''])[0].toUpperCase() || null;
   }
+  return f;
 }
 
-function loadFlights() {
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    if (raw) {
-      state.flights = JSON.parse(raw);
-      state.flights.forEach(f => {
-        if (!f.airline && f.flightNo) {
-          f.airline = (f.flightNo.match(/^[A-Za-z]+/) || [''])[0].toUpperCase() || null;
-        }
-      });
-    }
-  } catch (e) {
-    // corrupted data, start fresh
-  }
+// 新增一条航班记录到 SQLite（通过后端 API）
+async function saveFlight(flight) {
+  const res = await fetch(`${API_BASE}/flights`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(flight),
+  });
+  if (!res.ok) throw new Error('HTTP ' + res.status);
+}
+
+// 从 SQLite 加载全部航班记录
+async function loadFlights() {
+  const res = await fetch(`${API_BASE}/flights`);
+  if (!res.ok) throw new Error('HTTP ' + res.status);
+  state.flights = (await res.json()).map(normalizeFlight);
 }
 
 // ==================== Init ====================
-function init() {
+async function init() {
   EarthGlobe.init('#globe-container', {
     airportDB: AirportDB,
     getAirportPairs,
   });
-  EarthGlobe.setPanelWidth(436);
+  EarthGlobe.setPanelWidth(540);
 
-  loadFlights();
+  await loadFlights();
   updateHistory();
   EarthGlobe.refreshRoutes();
 
-  const pairs = state.flights.map(f => ({ from: f.from, to: f.to })).filter(p => p.from && p.to);
-  EarthGlobe.focusOnFlights(pairs);
+  // 页面初始视图中心为北京
+  EarthGlobe.lookAtLatLon(40.08, 116.58);
 
   const addFlightBtn = document.getElementById('add-flight-btn');
   addFlightBtn.addEventListener('click', () => {
@@ -609,7 +633,7 @@ function init() {
 
   toggleBtn.addEventListener('click', () => {
     const collapsed = appContainer.classList.toggle('collapsed');
-    EarthGlobe.setPanelWidth(collapsed ? 0 : 436);
+    EarthGlobe.setPanelWidth(collapsed ? 0 : 540);
   });
 
   const daynightBtn = document.getElementById('daynight-toggle');

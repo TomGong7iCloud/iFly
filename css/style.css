@@ -25,7 +25,7 @@ html, body {
   width: 100%;
   height: 100%;
   overflow: hidden;
-  font-family: 'Inter', 'Noto Sans SC', -apple-system, BlinkMacSystemFont, sans-serif;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', Roboto, sans-serif;
   background: var(--bg-deep);
   color: var(--text-primary);
   -webkit-font-smoothing: antialiased;
@@ -77,12 +77,14 @@ html, body {
   right: 0;
   bottom: 0;
   overflow: hidden;
+  transition: right 0.5s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
 #globe-container {
   width: 100%;
   height: 100%;
   position: relative;
+  background: var(--bg-deep);
 }
 
 #globe-container canvas {
@@ -100,6 +102,12 @@ html, body {
 
 .app-container.collapsed .panel-wrapper {
   transform: translateX(540px);
+}
+
+/* 刷新恢复收起状态：首次渲染直接收起，不播放过渡动画 */
+html.pre-collapsed .panel-wrapper {
+  transform: translateX(540px);
+  transition: none;
 }
 
 /* ===== Right Panel ===== */
@@ -157,15 +165,60 @@ html, body {
   right: 16px;
   bottom: 16px;
   left: 0;
+  overflow: hidden;
+}
+
+/* ===== 面板内容切换（淡入淡出 + 轻微位移） ===== */
+.panel-slider {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+}
+
+.panel-view {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
   display: flex;
   flex-direction: column;
-  overflow: hidden;
   padding: 24px;
+  box-sizing: border-box;
+  overflow: hidden;
+  opacity: 1;
+  transform: translateX(0);
+  transition:
+    opacity 0.4s cubic-bezier(0.4, 0, 0.2, 1),
+    transform 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+  will-change: transform, opacity;
+}
+
+/* 助手视图默认透明、略偏右、不可交互 */
+.panel-view.assistant-view {
+  opacity: 0;
+  transform: translateX(24px);
+  pointer-events: none;
+}
+
+/* 打开助手：历史视图淡出并轻微左移，助手视图淡入并归位 */
+.app-container.assistant-mode .panel-view.history-view {
+  opacity: 0;
+  transform: translateX(-24px);
+  pointer-events: none;
+}
+
+.app-container.assistant-mode .panel-view.assistant-view {
+  opacity: 1;
+  transform: translateX(0);
+  pointer-events: auto;
 }
 
 /* ===== History Scroll ===== */
 .history-scroll {
   flex: 1;
+  position: relative;
   overflow-y: auto;
   overflow-x: hidden;
   min-height: 0;
@@ -188,11 +241,57 @@ html, body {
   border-radius: 2px;
 }
 
+/* ===== Loading State ===== */
+.history-loading {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.spinner {
+  position: relative;
+  width: 28px;
+  height: 28px;
+}
+
+.spinner-bar {
+  position: absolute;
+  top: 0;
+  left: 50%;
+  width: 2px;
+  height: 7px;
+  margin-left: -1px;
+  border-radius: 1px;
+  background: rgba(255, 255, 255, 0.9);
+  transform-origin: 50% 14px;
+  animation: spinner-ios 1s linear infinite;
+}
+
+.spinner-bar:nth-child(1)  { transform: rotate(0deg);   animation-delay: 0s; }
+.spinner-bar:nth-child(2)  { transform: rotate(30deg);  animation-delay: -0.917s; }
+.spinner-bar:nth-child(3)  { transform: rotate(60deg);  animation-delay: -0.833s; }
+.spinner-bar:nth-child(4)  { transform: rotate(90deg);  animation-delay: -0.75s; }
+.spinner-bar:nth-child(5)  { transform: rotate(120deg); animation-delay: -0.667s; }
+.spinner-bar:nth-child(6)  { transform: rotate(150deg); animation-delay: -0.583s; }
+.spinner-bar:nth-child(7)  { transform: rotate(180deg); animation-delay: -0.5s; }
+.spinner-bar:nth-child(8)  { transform: rotate(210deg); animation-delay: -0.417s; }
+.spinner-bar:nth-child(9)  { transform: rotate(240deg); animation-delay: -0.333s; }
+.spinner-bar:nth-child(10) { transform: rotate(270deg); animation-delay: -0.25s; }
+.spinner-bar:nth-child(11) { transform: rotate(300deg); animation-delay: -0.167s; }
+.spinner-bar:nth-child(12) { transform: rotate(330deg); animation-delay: -0.083s; }
+
+@keyframes spinner-ios {
+  0%   { opacity: 1; }
+  100% { opacity: 0.15; }
+}
+
 /* ===== Empty State ===== */
 .history-empty {
   text-align: center;
   padding: 48px 10px;
-  font-size: 13px;
+  font-size: 14px;
   color: var(--text-secondary);
   opacity: 0.6;
 }
@@ -204,14 +303,14 @@ html, body {
 }
 
 .panel-header h2 {
-  font-size: 18px;
+  font-size: 20px;
   font-weight: 600;
   letter-spacing: 0.5px;
-  margin-bottom: 2px;
+  margin-bottom: 4px;
 }
 
 .panel-header .subtitle {
-  font-size: 10px;
+  font-size: 12px;
   font-weight: 500;
   color: var(--text-dim);
   letter-spacing: 1.5px;
@@ -288,8 +387,8 @@ html, body {
   letter-spacing: 0.3px;
 }
 
-/* ===== Add Flight Button ===== */
-.add-flight-btn {
+/* ===== Assistant Button ===== */
+.assistant-btn {
   flex-shrink: 0;
   width: 100%;
   height: 48px;
@@ -316,20 +415,20 @@ html, body {
   outline: none;
 }
 
-.add-flight-btn:hover {
+.assistant-btn:hover {
   color: rgba(255, 255, 255, 0.9);
   border-color: rgba(255, 255, 255, 0.15);
   background: rgba(255, 255, 255, 0.04);
   box-shadow: 0 0 20px rgba(77, 166, 255, 0.1);
 }
 
-.add-flight-btn:active {
+.assistant-btn:active {
   transform: scale(0.98);
 }
 
 /* ===== History Sections ===== */
 .history-section {
-  margin-bottom: 24px;
+  margin-bottom: 28px;
 }
 
 .history-section:last-child {
@@ -337,21 +436,33 @@ html, body {
 }
 
 .section-title {
-  font-size: 12px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
   font-weight: 600;
   color: var(--text-secondary);
   letter-spacing: 0.8px;
   text-transform: uppercase;
-  margin-bottom: 12px;
-  padding-bottom: 8px;
+  margin-bottom: 14px;
+  padding-bottom: 10px;
   border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.section-title::before {
+  content: '';
+  width: 4px;
+  height: 4px;
+  border-radius: 1px;
+  background: var(--accent);
+  flex-shrink: 0;
 }
 
 /* ===== Stat Cards Grid ===== */
 .stat-grid {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
-  gap: 8px;
+  gap: 10px;
 }
 
 .stat-grid.col-2 {
@@ -362,30 +473,31 @@ html, body {
   background: rgba(255, 255, 255, 0.03);
   border: 1px solid rgba(255, 255, 255, 0.05);
   border-radius: 10px;
-  padding: 12px 10px;
+  padding: 14px 12px;
   text-align: center;
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 3px;
+  gap: 5px;
 }
 
 .stat-item .stat-val {
-  font-size: 20px;
+  font-size: 22px;
   font-weight: 700;
+  color: var(--text-primary);
   letter-spacing: -0.5px;
   line-height: 1.2;
 }
 
 .stat-item .stat-lbl {
-  font-size: 10px;
+  font-size: 12px;
   color: var(--text-secondary);
   letter-spacing: 0.3px;
 }
 
 .stat-item.highlight {
   background: rgba(77, 166, 255, 0.06);
-  border-color: rgba(77, 166, 255, 0.12);
+  border-color: rgba(77, 166, 255, 0.14);
 }
 
 .stat-item.highlight .stat-val {
@@ -396,8 +508,9 @@ html, body {
 .info-row {
   display: flex;
   justify-content: space-between;
-  padding: 6px 0;
-  font-size: 12px;
+  align-items: center;
+  padding: 8px 0;
+  font-size: 13px;
   border-bottom: 1px solid rgba(255, 255, 255, 0.03);
 }
 
@@ -411,7 +524,7 @@ html, body {
 
 .info-row .info-value {
   color: var(--text-primary);
-  font-weight: 500;
+  font-weight: 600;
 }
 
 /* ===== Line Chart ===== */
@@ -426,9 +539,9 @@ html, body {
 }
 
 .line-chart-wrap .chart-label {
-  font-size: 10px;
+  font-size: 11px;
   color: var(--text-dim);
-  margin-bottom: 4px;
+  margin-bottom: 6px;
   letter-spacing: 0.3px;
 }
 
@@ -436,19 +549,19 @@ html, body {
 .bar-chart {
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 8px;
 }
 
 .bar-row {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 10px;
 }
 
 .bar-name {
-  width: 120px;
-  font-size: 11px;
-  color: var(--text-secondary);
+  width: 130px;
+  font-size: 12px;
+  color: var(--text-primary);
   text-align: right;
   flex-shrink: 0;
   overflow: hidden;
@@ -473,12 +586,27 @@ html, body {
 }
 
 .bar-count {
-  width: 28px;
+  width: 32px;
   text-align: right;
-  font-size: 11px;
+  font-size: 12px;
   color: var(--text-primary);
   font-weight: 600;
   flex-shrink: 0;
+}
+
+/* ===== Airline Logo ===== */
+.airline-logo {
+  width: 24px;
+  height: 20px;
+  object-fit: contain;
+  flex-shrink: 0;
+}
+
+.airline-chart .bar-name {
+  width: 44px;
+  text-align: left;
+  font-weight: 600;
+  letter-spacing: 0.5px;
 }
 
 /* ===== Flight Card ===== */
@@ -486,8 +614,8 @@ html, body {
   background: rgba(255, 255, 255, 0.03);
   border: 1px solid rgba(255, 255, 255, 0.05);
   border-radius: 8px;
-  padding: 10px 12px;
-  margin-bottom: 6px;
+  padding: 12px 14px;
+  margin-bottom: 8px;
 }
 
 .flight-mini-card:last-child {
@@ -495,15 +623,24 @@ html, body {
 }
 
 .flight-mini-card .fmc-route {
-  font-size: 13px;
+  font-size: 14px;
   font-weight: 600;
-  margin-bottom: 4px;
+  color: var(--text-primary);
+  margin-bottom: 6px;
+}
+
+.flight-mini-card .fmc-tag {
+  margin-right: 6px;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--accent);
 }
 
 .flight-mini-card .fmc-meta {
-  font-size: 10px;
+  font-size: 12px;
   color: var(--text-secondary);
   display: flex;
+  flex-wrap: wrap;
   gap: 12px;
 }
 
@@ -561,4 +698,254 @@ html, body {
     width: 60px;
     font-size: 10px;
   }
+}
+
+/* ===== Assistant View（面板内视图） ===== */
+.assistant-header {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+.assistant-back {
+  width: 32px;
+  height: 32px;
+  border: 1px solid var(--glass-border);
+  border-radius: 8px;
+  background: var(--glass-bg);
+  backdrop-filter: blur(var(--glass-blur));
+  -webkit-backdrop-filter: blur(var(--glass-blur));
+  color: rgba(255, 255, 255, 0.5);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  flex-shrink: 0;
+  transition: color 0.2s, border-color 0.2s, transform 0.2s;
+  outline: none;
+}
+
+.assistant-back:hover {
+  color: rgba(255, 255, 255, 0.85);
+  border-color: rgba(255, 255, 255, 0.15);
+}
+
+.assistant-back:active {
+  transform: scale(0.94);
+}
+
+.assistant-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 18px;
+  font-weight: 600;
+  color: var(--text-primary);
+  letter-spacing: 0.5px;
+}
+
+.assistant-icon {
+  color: var(--accent);
+}
+
+.assistant-messages {
+  flex: 1;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  min-height: 0;
+  margin-right: -8px;
+  padding-right: 8px;
+  -webkit-mask-image: linear-gradient(to bottom, black 0%, black calc(100% - 32px), transparent 100%);
+  mask-image: linear-gradient(to bottom, black 0%, black calc(100% - 32px), transparent 100%);
+}
+
+.assistant-messages::-webkit-scrollbar {
+  width: 4px;
+}
+
+.assistant-messages::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.assistant-messages::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.12);
+  border-radius: 2px;
+}
+
+.assistant-msg {
+  display: flex;
+  gap: 10px;
+  animation: assistantMsgIn 0.25s ease forwards;
+}
+
+@keyframes assistantMsgIn {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.assistant-msg.user {
+  flex-direction: row-reverse;
+}
+
+.assistant-msg-avatar {
+  flex-shrink: 0;
+  width: 30px;
+  height: 30px;
+  border-radius: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.assistant-msg:not(.user) .assistant-msg-avatar {
+  background: rgba(77, 166, 255, 0.1);
+  color: var(--accent);
+}
+
+.assistant-msg.user .assistant-msg-avatar {
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--text-primary);
+}
+
+.assistant-msg-bubble {
+  max-width: 70%;
+  padding: 12px 16px;
+  border-radius: 12px;
+  font-size: 14px;
+  line-height: 1.6;
+  word-break: break-word;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2);
+}
+
+.assistant-msg:not(.user) .assistant-msg-bubble {
+  background: rgba(255, 255, 255, 0.07);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  color: var(--text-primary);
+}
+
+.assistant-msg.user .assistant-msg-bubble {
+  background: rgba(77, 166, 255, 0.18);
+  border: 1px solid rgba(77, 166, 255, 0.28);
+  color: var(--text-primary);
+}
+
+.assistant-msg-bubble p { margin: 0; }
+.assistant-msg-bubble p + p { margin-top: 8px; }
+
+.assistant-msg-bubble strong {
+  color: var(--accent);
+  font-weight: 600;
+}
+
+.assistant-msg-bubble code {
+  background: rgba(255, 255, 255, 0.06);
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-family: 'Menlo', 'Monaco', monospace;
+  font-size: 13px;
+}
+
+.assistant-input-bar {
+  flex-shrink: 0;
+  padding-top: 16px;
+  border-top: 1px solid rgba(255, 255, 255, 0.06);
+  position: relative;
+}
+
+.assistant-input-bar textarea {
+  display: block;
+  width: 100%;
+  min-height: 44px;
+  max-height: 120px;
+  padding: 12px 52px 12px 16px;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 12px;
+  color: var(--text-primary);
+  font-size: 14px;
+  font-family: inherit;
+  line-height: 1.5;
+  resize: none;
+  outline: none;
+  transition: border-color 0.2s, background 0.2s;
+}
+
+.assistant-input-bar textarea:focus {
+  border-color: var(--accent-dim);
+  background: rgba(77, 166, 255, 0.03);
+}
+
+.assistant-input-bar textarea::placeholder {
+  color: var(--text-dim);
+}
+
+.assistant-send-btn {
+  position: absolute;
+  right: 8px;
+  bottom: 8px;
+  width: 32px;
+  height: 32px;
+  border: 1px solid var(--accent-dim);
+  border-radius: 8px;
+  background: rgba(77, 166, 255, 0.12);
+  color: var(--accent);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  transition: background 0.2s, transform 0.1s;
+  outline: none;
+}
+
+.assistant-send-btn:hover {
+  background: rgba(77, 166, 255, 0.18);
+}
+
+.assistant-send-btn:active {
+  transform: scale(0.96);
+}
+
+.assistant-send-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+  pointer-events: none;
+}
+
+/* Typing indicator */
+.assistant-typing {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 0;
+}
+
+.assistant-typing span {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.3);
+  animation: assistantTyping 1.4s infinite ease-in-out;
+}
+
+.assistant-typing span:nth-child(1) { animation-delay: 0s; }
+.assistant-typing span:nth-child(2) { animation-delay: 0.2s; }
+.assistant-typing span:nth-child(3) { animation-delay: 0.4s; }
+
+@keyframes assistantTyping {
+  0%, 60%, 100% { transform: translateY(0); }
+  30% { transform: translateY(-5px); }
 }

@@ -6,12 +6,22 @@
   <title>iFly - 飞行记录</title>
   <link rel="stylesheet" href="css/style.css">
   <link rel="icon" href="data:,">
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Noto+Sans+SC:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+  <script>
+    // 在首次渲染前恢复面板收起状态，避免刷新时出现展开动画
+    (function () {
+      try {
+        var s = JSON.parse(localStorage.getItem('ifly-ui-state')) || {};
+        if (s.collapsed) {
+          document.documentElement.classList.add('pre-collapsed');
+        }
+      } catch (e) {}
+    })();
+  </script>
   <script type="importmap">
   {
     "imports": {
-      "three": "https://unpkg.com/three@0.157.0/build/three.module.js",
-      "three/addons/": "https://unpkg.com/three@0.157.0/examples/jsm/"
+      "three": "./assets/vendor/three/three.module.js",
+      "three/addons/": "./assets/vendor/three/addons/"
     }
   }
   </script>
@@ -33,44 +43,102 @@
 
       <div class="right-panel">
       <div class="side-panel glass">
-        <!-- 标题栏（固定） -->
-        <div class="panel-header">
-          <h2>飞行历史</h2>
-          <span class="subtitle">FLIGHT HISTORY</span>
-          <button class="daynight-toggle" id="daynight-toggle" title="全亮模式">
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-              <circle cx="12" cy="12" r="5"/>
-              <line x1="12" y1="1" x2="12" y2="3"/>
-              <line x1="12" y1="21" x2="12" y2="23"/>
-              <line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/>
-              <line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/>
-              <line x1="1" y1="12" x2="3" y2="12"/>
-              <line x1="21" y1="12" x2="23" y2="12"/>
-              <line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/>
-              <line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/>
-            </svg>
-          </button>
-          <button class="daynight-toggle" id="rotate-toggle" title="自动转动">
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-              <polyline points="23 4 23 10 17 10"/>
-              <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/>
-            </svg>
-          </button>
-        </div>
+        <div class="panel-slider">
+          <!-- 视图 1：飞行历史 -->
+          <div class="panel-view history-view">
+            <!-- 标题栏（固定） -->
+            <div class="panel-header">
+              <h2>飞行历史</h2>
+              <span class="subtitle">FLIGHT HISTORY</span>
+              <button class="daynight-toggle" id="daynight-toggle" title="全亮模式">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <circle cx="12" cy="12" r="5"/>
+                  <line x1="12" y1="1" x2="12" y2="3"/>
+                  <line x1="12" y1="21" x2="12" y2="23"/>
+                  <line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/>
+                  <line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/>
+                  <line x1="1" y1="12" x2="3" y2="12"/>
+                  <line x1="21" y1="12" x2="23" y2="12"/>
+                  <line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/>
+                  <line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/>
+                </svg>
+              </button>
+              <button class="daynight-toggle" id="rotate-toggle" title="自动转动">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <polyline points="23 4 23 10 17 10"/>
+                  <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/>
+                </svg>
+              </button>
+            </div>
 
-        <!-- 历史内容（可滚动） -->
-        <div class="history-scroll" id="history-scroll">
-          <div class="history-empty">暂无飞行记录</div>
-        </div>
+            <!-- 历史内容（可滚动） -->
+            <div class="history-scroll" id="history-scroll">
+              <div class="history-loading">
+                <div class="spinner">
+                  <div class="spinner-bar"></div>
+                  <div class="spinner-bar"></div>
+                  <div class="spinner-bar"></div>
+                  <div class="spinner-bar"></div>
+                  <div class="spinner-bar"></div>
+                  <div class="spinner-bar"></div>
+                  <div class="spinner-bar"></div>
+                  <div class="spinner-bar"></div>
+                  <div class="spinner-bar"></div>
+                  <div class="spinner-bar"></div>
+                  <div class="spinner-bar"></div>
+                  <div class="spinner-bar"></div>
+                </div>
+              </div>
+            </div>
 
-        <!-- 记录航班按钮（固定） -->
-        <button class="add-flight-btn" id="add-flight-btn" title="记录新航班">
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <line x1="12" y1="5" x2="12" y2="19"/>
-            <line x1="5" y1="12" x2="19" y2="12"/>
-          </svg>
-          <span>记录航班</span>
-        </button>
+            <!-- 助手按钮（固定） -->
+            <button class="assistant-btn" id="assistant-btn" title="打开助手">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M12 8V4H8"/>
+                <rect x="4" y="8" width="16" height="12" rx="2"/>
+                <path d="M2 14h2"/>
+                <path d="M20 14h2"/>
+                <path d="M15 13v2"/>
+                <path d="M9 13v2"/>
+              </svg>
+              <span>助手</span>
+            </button>
+          </div>
+
+          <!-- 视图 2：助手对话 -->
+          <div class="panel-view assistant-view">
+            <div class="assistant-header">
+              <button class="assistant-back" id="assistant-back" title="返回飞行历史">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <polyline points="15 18 9 12 15 6"/>
+                </svg>
+              </button>
+              <div class="assistant-title">
+                <svg class="assistant-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M12 8V4H8"/>
+                  <rect x="4" y="8" width="16" height="12" rx="2"/>
+                  <path d="M2 14h2"/>
+                  <path d="M20 14h2"/>
+                  <path d="M15 13v2"/>
+                  <path d="M9 13v2"/>
+                </svg>
+                <span>iFly 助手</span>
+              </div>
+            </div>
+
+            <div class="assistant-messages" id="assistant-messages"></div>
+
+            <div class="assistant-input-bar">
+              <textarea id="assistant-input" placeholder="请输入指令..." rows="1"></textarea>
+              <button class="assistant-send-btn" id="assistant-send-btn" title="发送">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <line x1="22" y1="2" x2="11" y2="13"/>
+                  <polygon points="22 2 15 22 11 13 2 9 22 2"/>
+                </svg>
+              </button>
+            </div>
+          </div>
+        </div>
       </div>
     </div>
     </div>

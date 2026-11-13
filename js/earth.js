@@ -10,7 +10,7 @@ import { CSS2DRenderer, CSS2DObject } from 'three/addons/renderers/CSS2DRenderer
 const EarthGlobe = (() => {
   let scene, camera, renderer, labelRenderer, controls;
   let earthMesh, glowMesh;
-  let earthMap, phongMat, basicMat;
+  let earthMap, phongMat;
   let _directionalLight;
   let _cameraPivot;
   let _markersGroup;
@@ -32,7 +32,20 @@ const EarthGlobe = (() => {
 
   let _earthReady = false;
   let _earthScaleTarget = 0.01;
+  let _assistantZoomTarget = 0;
+  let _assistantZoomCurrent = 0;
+  let _assistantZoomBase = null;
 
+  // 沉浸模式相关状态
+  let _appearAnim = { active: false, t: 0 }; // 地球出现动画进度
+  let _routesHidden = false;                  // 航班记录是否已隐藏
+  let _focusAnim = null;                      // 航线聚焦动画 { fromDir, toDir, dist, t }
+
+  let _routesFade = { active: false, current: 1, target: 1, after: null }; // 航线淡入淡出状态
+
+  // 光照亮度过渡状态（0 = 真实光照，1 = 全亮）
+  let _fullBrightTarget = 0;
+  let _fullBrightCurrent = 0;
   const _textureLoader = new THREE.TextureLoader();
   const _preloadedTexture = _textureLoader.load(
     'assets/earth-blue-marble.jpg'
@@ -79,7 +92,7 @@ const EarthGlobe = (() => {
 
     const ambient = new THREE.AmbientLight(0x8899bb, 0.8);
     scene.add(ambient);
-    _directionalLight = new THREE.DirectionalLight(0xffffff, 3.5);
+    _directionalLight = new THREE.DirectionalLight(0xffffff, 2.0);
     _directionalLight.position.set(5, 3, 7);
     scene.add(_directionalLight);
 
@@ -113,9 +126,9 @@ const EarthGlobe = (() => {
       map: earthMap,
       specular: 0x000000,
       shininess: 1,
-    });
-    basicMat = new THREE.MeshBasicMaterial({
-      map: earthMap,
+      emissive: 0xffffff,
+      emissiveMap: earthMap,
+      emissiveIntensity: 0,
     });
     earthMesh = new THREE.Mesh(geom, phongMat);
     earthMesh.scale.set(0.01, 0.01, 0.01);
@@ -137,7 +150,7 @@ const EarthGlobe = (() => {
         }
       `,
       blending: THREE.AdditiveBlending,
-      side: THREE.FrontSide,
+      side: THREE.BackSide,
       transparent: true,
       depthWrite: false,
     });
@@ -290,6 +303,7 @@ const EarthGlobe = (() => {
         color: 0xffffff,
         side: THREE.DoubleSide,
         depthTest: true,
+        transparent: true,
       });
       const outlineDot = new THREE.Mesh(outlineGeom, outlineMat);
       outlineDot.position.copy(pos);
@@ -302,6 +316,7 @@ const EarthGlobe = (() => {
         color: 0x64b5f6,
         side: THREE.DoubleSide,
         depthTest: true,
+        transparent: true,
       });
       const dot = new THREE.Mesh(coreGeom, coreMat);
       dot.position.copy(pos.clone().add(normal.clone().multiplyScalar(0.0012)));
@@ -384,7 +399,7 @@ const EarthGlobe = (() => {
 
       const curve = new THREE.CatmullRomCurve3(points);
       const tubeGeom = new THREE.TubeGeometry(curve, 64, 0.0025, 8, false);
-      const tubeMat = new THREE.MeshBasicMaterial({ color: 0x4fc3f7 });
+      const tubeMat = new THREE.MeshBasicMaterial({ color: 0x4fc3f7, transparent: true });
       const tube = new THREE.Mesh(tubeGeom, tubeMat);
       _markersGroup.add(tube);
       flightArcs.push(tube);
@@ -423,18 +438,66 @@ const EarthGlobe = (() => {
     }
 
     if (_earthReady && earthMesh) {
-      const s = earthMesh.scale.x;
-      const t = _earthScaleTarget;
-      const ns = s + (t - s) * 0.08;
-      if (Math.abs(ns - t) < 0.001) {
-        earthMesh.scale.set(t, t, t);
-        if (glowMesh) glowMesh.scale.set(t, t, t);
-        if (_markersGroup) _markersGroup.scale.set(t, t, t);
+      if (_appearAnim.active) {
+        // 地球出现动画：从 0.01 放大到 1（easeOutCubic）
+        _appearAnim.t += 0.035;
+        if (_appearAnim.t >= 1) {
+          _appearAnim.t = 1;
+          _appearAnim.active = false;
+        }
+        const e = 1 - Math.pow(1 - _appearAnim.t, 3);
+        _applyEarthScale(0.01 + (1 - 0.01) * e);
       } else {
-        earthMesh.scale.set(ns, ns, ns);
-        if (glowMesh) glowMesh.scale.set(ns, ns, ns);
-        if (_markersGroup) _markersGroup.scale.set(ns, ns, ns);
+        const s = earthMesh.scale.x;
+        const t = _earthScaleTarget;
+        const ns = s + (t - s) * 0.08;
+        if (Math.abs(ns - t) < 0.001) {
+          _applyEarthScale(t);
+        } else {
+          _applyEarthScale(ns);
+        }
       }
+    }
+
+    // 航线淡入淡出：平滑过渡透明度
+    if (_routesFade.active) {
+      _routesFade.current += (_routesFade.target - _routesFade.current) * 0.15;
+      if (Math.abs(_routesFade.current - _routesFade.target) < 0.005) {
+        _routesFade.current = _routesFade.target;
+        _routesFade.active = false;
+        if (_routesFade.after) _routesFade.after();
+      }
+      _applyRoutesOpacity(_routesFade.current);
+    }
+
+    // 光照亮度平滑过渡：真实光照 ↔ 全亮模式
+    if (phongMat && Math.abs(_fullBrightCurrent - _fullBrightTarget) > 0.001) {
+      _fullBrightCurrent += (_fullBrightTarget - _fullBrightCurrent) * 0.12;
+      if (Math.abs(_fullBrightCurrent - _fullBrightTarget) < 0.001) {
+        _fullBrightCurrent = _fullBrightTarget;
+      }
+      phongMat.emissiveIntensity = _fullBrightCurrent;
+    }
+
+    // 航线聚焦动画：地球平滑转向目标方位
+    if (_focusAnim) {
+      _focusAnim.t += 0.045;
+      const e = 1 - Math.pow(1 - Math.min(_focusAnim.t, 1), 3);
+      const dir = _focusAnim.fromDir.clone().slerp(_focusAnim.toDir, e);
+      camera.position.copy(dir.multiplyScalar(_focusAnim.dist));
+      controls.target.set(0, 0, 0);
+      if (_focusAnim.t >= 1) _focusAnim = null;
+    }
+
+    // 助手镜头拉近/恢复：平滑调整相机到地球的距离
+    if (_assistantZoomBase !== null && Math.abs(_assistantZoomCurrent - _assistantZoomTarget) > 0.001) {
+      _assistantZoomCurrent += (_assistantZoomTarget - _assistantZoomCurrent) * 0.12;
+      if (Math.abs(_assistantZoomCurrent - _assistantZoomTarget) < 0.001) {
+        _assistantZoomCurrent = _assistantZoomTarget;
+      }
+      const dir = camera.position.clone().normalize();
+      const dist = _assistantZoomBase * (1 - 0.2 * _assistantZoomCurrent);
+      camera.position.copy(dir.multiplyScalar(dist));
     }
 
     controls.update();
@@ -442,6 +505,28 @@ const EarthGlobe = (() => {
     updateSunPosition();
     renderer.render(scene, camera);
     labelRenderer.render(scene, camera);
+  }
+
+  function _applyEarthScale(s) {
+    earthMesh.scale.set(s, s, s);
+    if (glowMesh) glowMesh.scale.set(s, s, s);
+    if (_markersGroup) _markersGroup.scale.set(s, s, s);
+    // 地球很小时降低光照强度，避免刚出现时过亮；
+    // 全亮模式下同步减弱平行光，让自发光主导、整体均匀
+    if (_directionalLight) {
+      const k = Math.min(s, 1);
+      _directionalLight.intensity = 2.0 * (0.45 + 0.55 * k) * (1 - _fullBrightCurrent);
+    }
+  }
+
+  // 统一设置机场标记与航线弧线的透明度
+  function _applyRoutesOpacity(v) {
+    airportMarkers.forEach(m => {
+      if (m.material) m.material.opacity = v;
+    });
+    flightArcs.forEach(arc => {
+      if (arc.material) arc.material.opacity = v;
+    });
   }
 
   function applyResize() {
@@ -521,9 +606,19 @@ const EarthGlobe = (() => {
     recalcPanelAngle();
   }
 
-  function setFullBright(enabled) {
-    if (!earthMesh) return;
-    earthMesh.material = enabled ? basicMat : phongMat;
+  function setFullBright(enabled, immediate = false) {
+    _fullBrightTarget = enabled ? 1 : 0;
+    if (immediate) {
+      _fullBrightCurrent = _fullBrightTarget;
+      if (phongMat) phongMat.emissiveIntensity = _fullBrightCurrent;
+    }
+  }
+
+  function setAssistantZoom(enabled) {
+    if (enabled && camera) {
+      _assistantZoomBase = camera.position.length();
+    }
+    _assistantZoomTarget = enabled ? 1 : 0;
   }
 
   function setAutoRotate(enabled) {
@@ -563,7 +658,68 @@ const EarthGlobe = (() => {
     }
   }
 
-  return { init, refreshRoutes, resize, setPanelWidth, setFullBright, setAutoRotate, lookAtLatLon, focusOnFlights };
+  // 隐藏全部航班记录（机场标记 + 航线弧）：先平滑淡出，再移除
+  function hideRoutes() {
+    _routesHidden = true;
+    _routesFade.target = 0;
+    _routesFade.active = true;
+    _routesFade.after = () => {
+      clearMarkers();
+      clearArcs();
+    };
+  }
+
+  // 恢复航班记录显示：重建后从透明平滑淡入
+  function showRoutes() {
+    _routesHidden = false;
+    refreshRoutes();
+    _applyRoutesOpacity(0);
+    _routesFade.current = 0;
+    _routesFade.target = 1;
+    _routesFade.active = true;
+    _routesFade.after = null;
+  }
+
+  // 地球出现动画（从 0.01 放大到 1）
+  function appearAnimation() {
+    if (!earthMesh) return;
+    _appearAnim.active = true;
+    _appearAnim.t = 0;
+  }
+
+  // 进入/退出沉浸模式：进入时隐藏航班记录并播放地球出现动画
+  function setImmersiveMode(enabled) {
+    if (enabled) {
+      if (!_routesHidden) hideRoutes();
+      appearAnimation();
+    } else {
+      if (_routesHidden) showRoutes();
+    }
+  }
+
+  // 地球平滑转向正对某条航线的中点方位（用于新增航班后的实时动画）
+  function focusOnRoute(fromCode, toCode) {
+    const a = _airportDB[fromCode];
+    const b = _airportDB[toCode];
+    if (!a || !b || !camera) return;
+
+    const midLat = (a.lat + b.lat) / 2;
+    const midLon = (a.lon + b.lon) / 2;
+    const targetDir = latLonToVec3(midLat, midLon).normalize();
+
+    _focusAnim = {
+      fromDir: camera.position.clone().normalize(),
+      toDir: targetDir,
+      dist: camera.position.length(),
+      t: 0,
+    };
+  }
+
+  return {
+    init, refreshRoutes, resize, setPanelWidth, setFullBright, setAutoRotate, setAssistantZoom,
+    lookAtLatLon, focusOnFlights, hideRoutes, showRoutes, appearAnimation,
+    setImmersiveMode, focusOnRoute,
+  };
 })();
 
 export { EarthGlobe };

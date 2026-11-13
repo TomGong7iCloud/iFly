@@ -56,6 +56,28 @@ const state = {
   totalDurationMin: 0,
 };
 
+// ==================== UI 状态持久化 ====================
+const UI_STATE_KEY = 'ifly-ui-state';
+let fullBright = false;
+
+function loadUIState() {
+  try {
+    return JSON.parse(localStorage.getItem(UI_STATE_KEY)) || {};
+  } catch {
+    return {};
+  }
+}
+
+function saveUIState(patch) {
+  try {
+    const state = loadUIState();
+    Object.assign(state, patch);
+    localStorage.setItem(UI_STATE_KEY, JSON.stringify(state));
+  } catch {
+    // localStorage 不可用时静默忽略
+  }
+}
+
 function getAirportPairs() {
   const pairs = [];
   state.flights.forEach(f => {
@@ -358,7 +380,7 @@ function renderAirlines(f) {
 
   let html = '<div class="history-section">';
   html += '<div class="section-title">航司统计</div>';
-  html += renderBarChart(items);
+  html += renderAirlineChart(items);
   html += '</div>';
   return html;
 }
@@ -417,13 +439,34 @@ function flightCard(fl, tag, useDuration) {
     : (fl.distance ? fl.distance.toLocaleString() + ' km' : '—');
 
   return `<div class="flight-mini-card">
-    <div class="fmc-route"><span style="color:var(--text-dim);font-size:10px;margin-right:4px">${tag}</span>${fromName} → ${toName}</div>
+    <div class="fmc-route"><span class="fmc-tag">${tag}</span>${fromName} → ${toName}</div>
     <div class="fmc-meta">
       <span>${fl.flightNo}</span>
       <span>${val}</span>
       <span>${fl.date || ''}</span>
     </div>
   </div>`;
+}
+
+function renderAirlineChart(items) {
+  const maxVal = Math.max(...items.map(i => i.value), 1);
+  const colors = ['#4da6ff', '#4fc3f7', '#64b5f6', '#42a5f5', '#90caf9', '#5c6bc0'];
+  return '<div class="bar-chart airline-chart">' + items.map((item, i) => {
+    const pct = (item.value / maxVal * 100).toFixed(0);
+    const color = colors[i % colors.length];
+    const code = item.label;
+    const logo = (code && code !== '未知')
+      ? `<img class="airline-logo" src="https://content.r9cdn.net/rimg/provider-logos/airlines/v/${code}.png" alt="${code}" loading="lazy" onerror="this.remove()">`
+      : '';
+    return `<div class="bar-row">
+      ${logo}
+      <span class="bar-name" title="${code}">${code}</span>
+      <div class="bar-track">
+        <div class="bar-fill" style="width:${pct}%;background:linear-gradient(90deg,${color}88,${color})"></div>
+      </div>
+      <span class="bar-count">${item.value}</span>
+    </div>`;
+  }).join('') + '</div>';
 }
 
 function renderBarChart(items) {
@@ -607,6 +650,135 @@ async function loadFlights() {
   state.flights = (await res.json()).map(normalizeFlight);
 }
 
+// ==================== Assistant Dialog ====================
+const ASSISTANT_BOT_ICON = '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 8V4H8"/><rect x="4" y="8" width="16" height="12" rx="2"/><path d="M2 14h2"/><path d="M20 14h2"/><path d="M15 13v2"/><path d="M9 13v2"/></svg>';
+
+function openAssistantDialog() {
+  // 切换到助手视图：面板内容淡入淡出切换，隐藏地球上的航班记录
+  const appContainer = document.querySelector('.app-container');
+  appContainer.classList.add('assistant-mode');
+  EarthGlobe.hideRoutes();
+  EarthGlobe.setFullBright(true);
+  EarthGlobe.setAssistantZoom(true);
+
+  const messages = document.getElementById('assistant-messages');
+  if (messages.children.length === 0) {
+    addAssistantMessage('assistant', '你好，我是 iFly 助手。你可以直接告诉我航班信息来记录，也可以让我编辑或删除已有记录。例如：<br><code>2024年5月1日 CA123 北京-上海 A321 2h45m</code>');
+  }
+
+  const input = document.getElementById('assistant-input');
+  input.focus({ preventScroll: true });
+}
+
+function closeAssistantDialog() {
+  // 返回飞行历史视图：面板内容淡入淡出切换，恢复地球上的航班记录
+  const appContainer = document.querySelector('.app-container');
+  appContainer.classList.remove('assistant-mode');
+  EarthGlobe.showRoutes();
+  EarthGlobe.setFullBright(fullBright);
+  EarthGlobe.setAssistantZoom(false);
+}
+
+function escapeHtml(str) {
+  return String(str).replace(/[&<>"']/g, c => (
+    { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]
+  ));
+}
+
+function addAssistantMessage(role, html) {
+  const messages = document.getElementById('assistant-messages');
+  const msg = document.createElement('div');
+  msg.className = 'assistant-msg' + (role === 'user' ? ' user' : '');
+
+  const avatar = document.createElement('div');
+  avatar.className = 'assistant-msg-avatar';
+  if (role === 'user') {
+    avatar.textContent = '我';
+  } else {
+    avatar.innerHTML = ASSISTANT_BOT_ICON;
+  }
+
+  const bubble = document.createElement('div');
+  bubble.className = 'assistant-msg-bubble';
+  bubble.innerHTML = html;
+
+  msg.appendChild(avatar);
+  msg.appendChild(bubble);
+  messages.appendChild(msg);
+  messages.scrollTop = messages.scrollHeight;
+  return msg;
+}
+
+function showAssistantTyping() {
+  const messages = document.getElementById('assistant-messages');
+  const typing = document.createElement('div');
+  typing.className = 'assistant-msg';
+  typing.id = 'assistant-typing';
+
+  const avatar = document.createElement('div');
+  avatar.className = 'assistant-msg-avatar';
+  avatar.innerHTML = ASSISTANT_BOT_ICON;
+
+  const bubble = document.createElement('div');
+  bubble.className = 'assistant-msg-bubble';
+  bubble.innerHTML = '<div class="assistant-typing"><span></span><span></span><span></span></div>';
+
+  typing.appendChild(avatar);
+  typing.appendChild(bubble);
+  messages.appendChild(typing);
+  messages.scrollTop = messages.scrollHeight;
+}
+
+function hideAssistantTyping() {
+  const typing = document.getElementById('assistant-typing');
+  if (typing) typing.remove();
+}
+
+// 自研小 LLM 模型接入点（当前为占位逻辑）
+async function getAssistantReply(text) {
+  // TODO: 接入自研小 LLM 模型，实现飞行记录的增删改
+  const flight = parseFlightInput(text);
+  if (flight) {
+    // 解析成功后（接入真实保存逻辑时）：
+    //   await saveFlight(flight);                    // 保存到 SQLite
+    //   EarthGlobe.focusOnRoute(flight.from, flight.to); // 地球转向新航线方位
+    return '已识别到航班信息：<br><strong>' + escapeHtml(flight.flightNo) + '</strong> '
+      + escapeHtml(flight.from || '?') + ' → ' + escapeHtml(flight.to || '?')
+      + '，日期 ' + escapeHtml(flight.date)
+      + '<br>模型接入后即可保存到飞行记录。';
+  }
+  return '我暂时还无法理解这条指令。模型接入后，我将支持记录、编辑和删除飞行记录。';
+}
+
+function autoResizeTextarea(el) {
+  el.style.height = 'auto';
+  el.style.height = Math.min(el.scrollHeight, 120) + 'px';
+}
+
+async function sendAssistantMessage() {
+  const input = document.getElementById('assistant-input');
+  const sendBtn = document.getElementById('assistant-send-btn');
+  const text = input.value.trim();
+  if (!text) return;
+
+  addAssistantMessage('user', escapeHtml(text));
+  input.value = '';
+  autoResizeTextarea(input);
+  sendBtn.disabled = true;
+
+  showAssistantTyping();
+  let reply;
+  try {
+    reply = await getAssistantReply(text);
+  } catch (err) {
+    reply = '出错了：' + escapeHtml(err.message || err);
+  }
+  hideAssistantTyping();
+  addAssistantMessage('assistant', reply);
+  sendBtn.disabled = false;
+  input.focus();
+}
+
 // ==================== Init ====================
 async function init() {
   EarthGlobe.init('#globe-container', {
@@ -615,6 +787,15 @@ async function init() {
   });
   EarthGlobe.setPanelWidth(540);
 
+  // 尽早接管面板状态：刷新前收起则直接保持收起，无过渡动画
+  const savedState = loadUIState();
+  const appContainer = document.querySelector('.app-container');
+  if (savedState.collapsed) {
+    document.documentElement.classList.remove('pre-collapsed');
+    appContainer.classList.add('collapsed');
+    EarthGlobe.setPanelWidth(0);
+  }
+
   await loadFlights();
   updateHistory();
   EarthGlobe.refreshRoutes();
@@ -622,36 +803,67 @@ async function init() {
   // 页面初始视图中心为北京
   EarthGlobe.lookAtLatLon(40.08, 116.58);
 
-  const addFlightBtn = document.getElementById('add-flight-btn');
-  addFlightBtn.addEventListener('click', () => {
-    // 对话框面板稍后添加
-    console.log('记录航班 — 对话框功能即将上线');
+  const assistantBtn = document.getElementById('assistant-btn');
+  assistantBtn.addEventListener('click', openAssistantDialog);
+
+  // 助手视图：返回按钮
+  const assistantBack = document.getElementById('assistant-back');
+  assistantBack.addEventListener('click', closeAssistantDialog);
+
+  const assistantSend = document.getElementById('assistant-send-btn');
+  assistantSend.addEventListener('click', sendAssistantMessage);
+
+  const assistantInput = document.getElementById('assistant-input');
+  assistantInput.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault();
+      sendAssistantMessage();
+    }
+  });
+  assistantInput.addEventListener('input', () => autoResizeTextarea(assistantInput));
+
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && document.querySelector('.app-container').classList.contains('assistant-mode')) {
+      closeAssistantDialog();
+    }
   });
 
   const toggleBtn = document.getElementById('panel-toggle');
-  const appContainer = document.querySelector('.app-container');
 
   toggleBtn.addEventListener('click', () => {
     const collapsed = appContainer.classList.toggle('collapsed');
     EarthGlobe.setPanelWidth(collapsed ? 0 : 540);
+    saveUIState({ collapsed });
   });
 
   const daynightBtn = document.getElementById('daynight-toggle');
-  let fullBright = false;
+  fullBright = !!savedState.fullBright;
+  if (fullBright) {
+    EarthGlobe.setFullBright(true, true);
+    daynightBtn.classList.add('active');
+    daynightBtn.title = '真实光照';
+  }
   daynightBtn.addEventListener('click', () => {
     fullBright = !fullBright;
     EarthGlobe.setFullBright(fullBright);
     daynightBtn.classList.toggle('active', fullBright);
     daynightBtn.title = fullBright ? '真实光照' : '全亮模式';
+    saveUIState({ fullBright });
   });
 
   const rotateBtn = document.getElementById('rotate-toggle');
-  let autoRotate = false;
+  let autoRotate = !!savedState.autoRotate;
+  if (autoRotate) {
+    EarthGlobe.setAutoRotate(true);
+    rotateBtn.classList.add('active');
+    rotateBtn.title = '停止转动';
+  }
   rotateBtn.addEventListener('click', () => {
     autoRotate = !autoRotate;
     EarthGlobe.setAutoRotate(autoRotate);
     rotateBtn.classList.toggle('active', autoRotate);
     rotateBtn.title = autoRotate ? '停止转动' : '自动转动';
+    saveUIState({ autoRotate });
   });
 }
 

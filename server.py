@@ -128,6 +128,48 @@ def add_flight():
     return jsonify({'id': new_id, 'success': True})
 
 
+@app.route('/api/flights/<int:flight_id>', methods=['PUT'])
+def update_flight(flight_id):
+    """修改一条飞行记录（仅更新提供的字段）"""
+    data = request.get_json(silent=True) or {}
+
+    # 前端字段名 -> 数据库列名
+    field_map = {
+        'flightNo': 'flightNo',
+        'airline': 'airline',
+        'from': 'from_airport',
+        'to': 'to_airport',
+        'fromName': 'from_name',
+        'toName': 'to_name',
+        'date': 'date',
+        'aircraft': 'aircraft',
+        'durationMin': 'durationMin',
+        'distance': 'distance',
+    }
+
+    updates = []
+    values = []
+    for key, col in field_map.items():
+        if key in data:
+            updates.append(f'{col} = ?')
+            values.append(data[key])
+
+    if not updates:
+        abort(400, description='No fields to update')
+
+    conn = get_db()
+    cursor = conn.cursor()
+    values.append(flight_id)
+    cursor.execute(f'UPDATE flights SET {", ".join(updates)} WHERE id = ?', values)
+    conn.commit()
+    affected = cursor.rowcount
+    conn.close()
+
+    if affected == 0:
+        abort(404, description='Flight not found')
+    return jsonify({'success': True})
+
+
 @app.route('/api/flights/<int:flight_id>', methods=['DELETE'])
 def delete_flight(flight_id):
     """删除一条飞行记录"""

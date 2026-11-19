@@ -40,6 +40,12 @@ const EarthGlobe = (() => {
   let _appearAnim = { active: false, t: 0 }; // 地球出现动画进度
   let _routesHidden = false;                  // 航班记录是否已隐藏
   let _focusAnim = null;                      // 航线聚焦动画 { fromDir, toDir, dist, t }
+  let _frameAnim = null;                      // 航线取景动画 { fromDir, toDir, fromDist, toDist, t, onDone }
+  let _previewGroup = null;                   // 待确认航线的预览（弧线 + 端点高亮）
+  let _previewOpacity = 0;
+  let _previewTarget = 0;
+  let _previewActive = false;
+  let _previewRestore = null;                 // 预览前的相机状态 { dir, dist }，用于取消时还原
 
   let _routesFade = { active: false, current: 1, target: 1, after: null }; // 航线淡入淡出状态
 
@@ -308,6 +314,7 @@ const EarthGlobe = (() => {
       const outlineDot = new THREE.Mesh(outlineGeom, outlineMat);
       outlineDot.position.copy(pos);
       outlineDot.setRotationFromQuaternion(quat);
+      outlineDot.renderOrder = 2;
       _markersGroup.add(outlineDot);
       airportMarkers.push(outlineDot);
 
@@ -322,6 +329,7 @@ const EarthGlobe = (() => {
       dot.position.copy(pos.clone().add(normal.clone().multiplyScalar(0.0012)));
       dot.setRotationFromQuaternion(quat);
       dot.name = code;
+      dot.renderOrder = 2;
       _markersGroup.add(dot);
       airportMarkers.push(dot);
 
@@ -344,14 +352,63 @@ const EarthGlobe = (() => {
       sprite.position.copy(pos.clone().multiplyScalar(1.022).add(offset));
       sprite.scale.set(0.18, 0.045, 1);
       sprite.name = code + '_label';
+      sprite.renderOrder = 3;
       _markersGroup.add(sprite);
       airportMarkers.push(sprite);
     });
   }
 
+  // 航线弧线曲线：线性插值控制点，避免 Catmull-Rom 样条在端点处下冲穿入地球
+  class ArcCurve extends THREE.Curve {
+    constructor(points) {
+      super();
+      this.arcPoints = points;
+    }
+    getPoint(t, optionalTarget = new THREE.Vector3()) {
+      const pts = this.arcPoints;
+      const last = pts.length - 1;
+      const pos = THREE.MathUtils.clamp(t, 0, 1) * last;
+      const i = Math.floor(pos);
+      const iNext = Math.min(i + 1, last);
+      const f = pos - i;
+      return optionalTarget.lerpVectors(pts[i], pts[iNext], f);
+    }
+  }
+
   function clearArcs() {
     flightArcs.forEach(arc => _markersGroup.remove(arc));
     flightArcs = [];
+  }
+
+  function buildArcPoints(apFrom, apTo) {
+    const start = latLonToVec3(apFrom.lat, apFrom.lon);
+    const end = latLonToVec3(apTo.lat, apTo.lon);
+    const startN = start.clone().normalize();
+    const endN = end.clone().normalize();
+    const dot = THREE.MathUtils.clamp(startN.dot(endN), -1, 1);
+    const angle = Math.acos(dot);
+    if (angle < 0.0001) return null;
+
+    const segments = 64;
+    const maxPush = (angle / Math.PI) * 0.15;
+    const points = [];
+
+    for (let i = 0; i <= segments; i++) {
+      const t = i / segments;
+      let pt;
+      if (i === 0) {
+        pt = startN.clone();
+      } else if (i === segments) {
+        pt = endN.clone();
+      } else {
+        const a0 = Math.sin((1 - t) * angle) / Math.sin(angle);
+        const a1 = Math.sin(t * angle) / Math.sin(angle);
+        pt = startN.clone().multiplyScalar(a0).add(endN.clone().multiplyScalar(a1));
+      }
+      const push = Math.sin(Math.PI * t) * maxPush;
+      points.push(pt.multiplyScalar(1.285 + push));
+    }
+    return points;
   }
 
   function addFlightArcs(pairs) {
@@ -367,40 +424,14 @@ const EarthGlobe = (() => {
       const apTo = _airportDB[to];
       if (!apFrom || !apTo) return;
 
-      const start = latLonToVec3(apFrom.lat, apFrom.lon);
-      const end = latLonToVec3(apTo.lat, apTo.lon);
+      const points = buildArcPoints(apFrom, apTo);
+      if (!points) return;
 
-      const startN = start.clone().normalize();
-      const endN = end.clone().normalize();
-      const dot = THREE.MathUtils.clamp(startN.dot(endN), -1, 1);
-      const angle = Math.acos(dot);
-
-      if (angle < 0.0001) return;
-
-      const segments = 64;
-      const maxPush = (angle / Math.PI) * 0.15;
-      const points = [];
-
-      for (let i = 0; i <= segments; i++) {
-        const t = i / segments;
-        let pt;
-        if (i === 0) {
-          pt = startN.clone();
-        } else if (i === segments) {
-          pt = endN.clone();
-        } else {
-          const a0 = Math.sin((1 - t) * angle) / Math.sin(angle);
-          const a1 = Math.sin(t * angle) / Math.sin(angle);
-          pt = startN.clone().multiplyScalar(a0).add(endN.clone().multiplyScalar(a1));
-        }
-        const push = Math.sin(Math.PI * t) * maxPush;
-        points.push(pt.multiplyScalar(1.285 + push));
-      }
-
-      const curve = new THREE.CatmullRomCurve3(points);
+      const curve = new ArcCurve(points);
       const tubeGeom = new THREE.TubeGeometry(curve, 64, 0.0025, 8, false);
       const tubeMat = new THREE.MeshBasicMaterial({ color: 0x4fc3f7, transparent: true });
       const tube = new THREE.Mesh(tubeGeom, tubeMat);
+      tube.renderOrder = 1;
       _markersGroup.add(tube);
       flightArcs.push(tube);
     });
@@ -415,6 +446,8 @@ const EarthGlobe = (() => {
     });
     addAirportMarkers(allIATAs, pairs);
     addFlightArcs(pairs);
+    // 助手模式打开时航班记录被隐藏，重建后需保持隐藏状态
+    if (_routesHidden) _applyRoutesOpacity(0);
   }
 
   function animate() {
@@ -487,6 +520,31 @@ const EarthGlobe = (() => {
       camera.position.copy(dir.multiplyScalar(_focusAnim.dist));
       controls.target.set(0, 0, 0);
       if (_focusAnim.t >= 1) _focusAnim = null;
+    }
+
+    // 航线取景动画：平滑调整相机方向与距离，使整条航线居中且完整可见
+    if (_frameAnim) {
+      _frameAnim.t += 0.05;
+      const e = 1 - Math.pow(1 - Math.min(_frameAnim.t, 1), 3);
+      const dir = _frameAnim.fromDir.clone().slerp(_frameAnim.toDir, e);
+      const dist = _frameAnim.fromDist + (_frameAnim.toDist - _frameAnim.fromDist) * e;
+      camera.position.copy(dir.multiplyScalar(dist));
+      controls.target.set(0, 0, 0);
+      if (_frameAnim.t >= 1) {
+        const onDone = _frameAnim.onDone;
+        _frameAnim = null;
+        if (onDone) onDone();
+      }
+    }
+
+    // 预览航线淡入淡出
+    if (_previewActive) {
+      _previewOpacity += (_previewTarget - _previewOpacity) * 0.18;
+      if (Math.abs(_previewOpacity - _previewTarget) < 0.01) {
+        _previewOpacity = _previewTarget;
+        _previewActive = false;
+      }
+      _applyPreviewOpacity(_previewOpacity);
     }
 
     // 助手镜头拉近/恢复：平滑调整相机到地球的距离
@@ -715,10 +773,141 @@ const EarthGlobe = (() => {
     };
   }
 
+  function _applyPreviewOpacity(v) {
+    if (!_previewGroup) return;
+    _previewGroup.traverse(o => {
+      if (o.material) o.material.opacity = v;
+    });
+  }
+
+  function _disposePreview() {
+    if (_previewGroup) {
+      _markersGroup.remove(_previewGroup);
+      _previewGroup.traverse(o => {
+        if (o.geometry) o.geometry.dispose();
+        if (o.material) o.material.dispose();
+      });
+      _previewGroup = null;
+    }
+    _previewOpacity = 0;
+    _previewTarget = 0;
+    _previewActive = false;
+  }
+
+  function drawPreviewRoute(fromCode, toCode) {
+    _disposePreview();
+    const a = _airportDB[fromCode];
+    const b = _airportDB[toCode];
+    if (!a || !b) return;
+
+    _previewGroup = new THREE.Group();
+    _markersGroup.add(_previewGroup);
+
+    const points = buildArcPoints(a, b);
+    if (points) {
+      const curve = new ArcCurve(points);
+      const tubeGeom = new THREE.TubeGeometry(curve, 64, 0.0055, 10, false);
+      const tubeMat = new THREE.MeshBasicMaterial({ color: 0xffb74d, transparent: true, opacity: 0, depthTest: true });
+      const tube = new THREE.Mesh(tubeGeom, tubeMat);
+      tube.renderOrder = 1;
+      _previewGroup.add(tube);
+    }
+
+    [a, b].forEach(ap => {
+      const pos = latLonToVec3(ap.lat, ap.lon);
+      const normal = pos.clone().normalize();
+      const quat = new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, 0, 1), normal);
+      const haloGeom = new THREE.CircleGeometry(0.02, 32);
+      const haloMat = new THREE.MeshBasicMaterial({ color: 0xffb74d, side: THREE.DoubleSide, transparent: true, opacity: 0, depthTest: true });
+      const halo = new THREE.Mesh(haloGeom, haloMat);
+      halo.position.copy(pos.clone().add(normal.clone().multiplyScalar(0.002)));
+      halo.setRotationFromQuaternion(quat);
+      halo.renderOrder = 2;
+      _previewGroup.add(halo);
+    });
+
+    _previewOpacity = 0;
+    _previewTarget = 1;
+    _previewActive = true;
+  }
+
+  // 计算取景参数：相机方向对准航线包围球中心，距离保证整条航线完整可见
+  function frameRoute(a, b) {
+    const points = buildArcPoints(a, b);
+    if (!points || !camera) return;
+
+    const box = new THREE.Box3().setFromPoints(points);
+    const sphere = box.getBoundingSphere(new THREE.Sphere());
+
+    let dir;
+    if (sphere.center.lengthSq() < 1e-6) {
+      dir = points[Math.floor(points.length / 2)].clone().normalize();
+    } else {
+      dir = sphere.center.clone().normalize();
+    }
+
+    const vFov = camera.fov * Math.PI / 180;
+    const hFov = 2 * Math.atan(Math.tan(vFov / 2) * camera.aspect);
+    // 右侧为助手面板，航线应在左侧可视区域内居中，可用水平视野取约 72%
+    const usableH = hFov * 0.72;
+    // 再留出余量，保证航线不会贴边
+    const half = (Math.min(vFov, usableH) / 2) * 0.8;
+
+    const centerDist = sphere.center.length();
+    const reqDist = centerDist + sphere.radius / Math.tan(half);
+    const minDist = controls ? controls.minDistance : 2.2;
+    const toDist = Math.max(reqDist, minDist);
+
+    _frameAnim = {
+      fromDir: camera.position.clone().normalize(),
+      toDir: dir,
+      fromDist: camera.position.length(),
+      toDist,
+      t: 0,
+      onDone: null,
+    };
+  }
+
+  // 预览待确认的航线：渲染临时航线并把镜头拉近、居中，确保整条航线可见
+  function previewRoute(fromCode, toCode) {
+    const a = _airportDB[fromCode];
+    const b = _airportDB[toCode];
+    if (!a || !b || !camera) return;
+
+    // 记录预览前的相机，用于取消时平滑还原
+    if (!_previewRestore) {
+      _previewRestore = { dir: camera.position.clone().normalize(), dist: camera.position.length() };
+    }
+
+    drawPreviewRoute(fromCode, toCode);
+    frameRoute(a, b);
+  }
+
+  // 清除预览。restoreCamera 为 true 时平滑还原镜头（取消场景），
+  // false 时仅清除预览元素并保留当前镜头（确认成功/关闭助手场景）
+  function clearPreviewRoute(restoreCamera = true) {
+    _disposePreview();
+    if (restoreCamera && _previewRestore && camera) {
+      const r = _previewRestore;
+      _previewRestore = null;
+      _frameAnim = {
+        fromDir: camera.position.clone().normalize(),
+        toDir: r.dir,
+        fromDist: camera.position.length(),
+        toDist: r.dist,
+        t: 0,
+        onDone: null,
+      };
+    } else {
+      _previewRestore = null;
+      _frameAnim = null; // 由聚焦动画或助手镜头恢复接管，取消取景动画
+    }
+  }
+
   return {
     init, refreshRoutes, resize, setPanelWidth, setFullBright, setAutoRotate, setAssistantZoom,
     lookAtLatLon, focusOnFlights, hideRoutes, showRoutes, appearAnimation,
-    setImmersiveMode, focusOnRoute,
+    setImmersiveMode, focusOnRoute, previewRoute, clearPreviewRoute,
   };
 })();
 
